@@ -5,7 +5,8 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/proj0071-rea-local-agent.yml'
-      - 'screening/agent-campaign/**'
+      - 'screening/agent-campaign/local-langgraph-agent.py'
+      - 'screening/agent-campaign/rea-bridge.mjs'
   workflow_dispatch:
 
 permissions:
