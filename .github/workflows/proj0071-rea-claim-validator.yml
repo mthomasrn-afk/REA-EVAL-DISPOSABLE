@@ -1,0 +1,54 @@
+name: PROJ-0071 REA deterministic claim validator
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/proj0071-rea-claim-validator.yml'
+      - 'screening/claim-validator/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p71-rea-claim-validator-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deterministic-validator:
+    name: "REA evidence gate / ${{ matrix.os }}"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - name: Checkout isolated public candidate fixture
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Set up Node.js 24.15.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.15.0'
+      - name: No-network dependency-free validator controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check screening/claim-validator/semantic-claim-validator.mjs
+          node --check screening/claim-validator/test-semantic-claim-validator.mjs
+          node --check screening/claim-validator/test-real-mcp-validator.mjs
+          node screening/claim-validator/test-semantic-claim-validator.mjs
+      - name: Acquire exact REA candidate release (no lifecycle scripts)
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --ignore-scripts --no-audit --no-fund --no-save --package-lock=false rea-agents@6.5.0
+          node -e "let p=require('rea-agents/package.json'); if(p.version!=='6.5.0') process.exit(1); console.log('EXACT_REA_RELEASE_PASS')"
+      - name: Validate actual REA MCP evidence with synthetic fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          node screening/claim-validator/test-real-mcp-validator.mjs
