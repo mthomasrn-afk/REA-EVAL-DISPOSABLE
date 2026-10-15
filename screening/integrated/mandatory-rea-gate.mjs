@@ -27,7 +27,7 @@ const inventory=directory=>{
   visit(directory);
   return hash(entries.sort().join('\n'));
 };
-const deadline=(p,ms)=>Promise.race([p,new Promise((_,reject)=>setTimeout(()=>reject(Error('TIMEOUT')),ms))]);
+const deadline=async(p,ms)=>{let timer;try{return await Promise.race([p,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('TIMEOUT')),ms)})]);}finally{clearTimeout(timer);}};
 let transport,client;
 try{
   if(!path.isAbsolute(target)||!fs.statSync(target).isDirectory())throw Error('INVALID_TARGET');
