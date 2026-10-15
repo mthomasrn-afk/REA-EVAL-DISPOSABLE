@@ -1,0 +1,55 @@
+name: PROJ-0071 REA graph-edge and fault campaign
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/proj0071-rea-edge-fault.yml'
+      - 'screening/edge-fault/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p71-rea-edge-fault-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  graph-and-fault:
+    name: "REA graph and fault / ${{ matrix.os }}"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - name: Checkout public fixture-only repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Set up Node v24.15.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.15.0'
+      - name: Verify candidate source and independent fault-unit checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check screening/edge-fault/rea-api-channel-candidate.mjs
+          node --check screening/edge-fault/test-api-channel-candidate.mjs
+          node --check screening/edge-fault/test-real-edge-fault.mjs
+          node screening/edge-fault/test-api-channel-candidate.mjs
+          node screening/claim-validator/test-semantic-claim-validator.mjs
+      - name: Install pinned REA real MCP candidate, no lifecycle scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --ignore-scripts --no-audit --no-fund --no-save --package-lock=false rea-agents@6.5.0
+          node -e "if(require('rea-agents/package.json').version!=='6.5.0')process.exit(1);console.log('REA_DIRECT_VERSION_PASS')"
+      - name: Run real REA static candidate edges and fault injections
+        shell: bash
+        run: |
+          set -euo pipefail
+          node screening/edge-fault/test-real-edge-fault.mjs
