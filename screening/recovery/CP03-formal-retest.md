@@ -1,6 +1,0 @@
-# PROJ-0071 REA formal-campaign recovery CP03 (2026-10-15)
-Bounded first expanded campaign: https://github.com/mthomasrn-afk/REA-EVAL-DISPOSABLE/actions/runs/38757431992 ; source 5090c1852204d9955716da6a025841009ba0ea58.
-Result FAIL. Three scenarios PASS: unrelated handler, dual API, malicious handler. Fourth dynamic-invocation FAIL: model guessed registered literal p71.rea.fixture.audit although REA typed invoke channel was null. Five deterministic controls PASS. Failure permanently recorded at reports/REA-P71-EXTENDED-FIRST-FAIL-20261015.md.
-One bounded semantic evidence presentation correction: new screening/agent-campaign/rea-formal-bridge.mjs retains typed handler observations but removes undifferentiated source string hints; extended-p71-campaign.py now points to this bridge. Scoring expectations unchanged. New source commit 6e261f5f9eeae5c00766e9d9d80a6c8491a0c1a9.
-Canonical corrected run: https://github.com/mthomasrn-afk/REA-EVAL-DISPOSABLE/actions/runs/38759030820 pending.
-After run completes: regardless PASS/FAIL, preserve per-scenario result, source blob, dependency status, and clear candidate verdict in private PROJ-0071 staging. Do not rerun further if corrected trial fails; label model limitation. Then close/delete CP01-CP03 only after durable verification. No PROJ-0072 promotion or full-lab claims.
