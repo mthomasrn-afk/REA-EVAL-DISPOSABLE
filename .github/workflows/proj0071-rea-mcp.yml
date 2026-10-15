@@ -1,0 +1,43 @@
+name: PROJ-0071 REA MCP candidate trial
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/proj0071-rea-mcp.yml'
+      - 'screening/proj0071-rea-mcp.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proj0071-rea-mcp-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mcp-subprocess-screen:
+    name: "MCP stdio / ${{ matrix.os }}"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - name: Checkout disposable fixture-only project
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Configure pinned Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.15.0'
+      - name: Install exact candidate release without lifecycle scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --ignore-scripts --no-audit --no-fund --no-save --package-lock=false rea-agents@6.5.0
+      - name: Real MCP stdio transport and synthetic artifact screening
+        shell: bash
+        run: node screening/proj0071-rea-mcp.mjs
