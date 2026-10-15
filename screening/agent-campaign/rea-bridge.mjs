@@ -41,6 +41,18 @@ try {
   }
   const graph=result.graph;
   const graphId=graph?.graph_id || result.graph_id || null;
+  const bridge_apis=(graph?.nodes||[]).filter(n=>n.kind==='context-bridge-api')
+    .flatMap(n=>(n.observations||[]).map(o=>({
+      api_key:o.properties?.api_key??null,
+      world:o.properties?.world??null
+    })));
+  const ipc_observations=(graph?.nodes||[]).filter(n=>n.kind==='ipc-channel')
+    .flatMap(n=>(n.observations||[]).map(o=>({
+      channel:o.properties?.channel??null,
+      mode:o.properties?.mode??null,
+      side:o.properties?.side??null
+    })));
+
   const output={
     tool:'analyze_javascript_application',
     actual_mcp:true,
@@ -48,6 +60,8 @@ try {
     graph_id:graphId,
     provenance_untrusted:response._meta?.provenance?.untrusted_content===true,
     evidence_tokens:tokens,
+    bridge_apis,
+    ipc_observations,
     evidence_contexts:contexts.slice(0,14),
     limitation:'This is static artifact evidence; runtime execution and dynamic IPC are not established.'
   };
