@@ -18,7 +18,7 @@ LIB=Path(__file__).parents[1]/"agent-campaign"/"local-langgraph-agent.py"
 SPEC=importlib.util.spec_from_file_location("p71_old_agent_nodes",LIB)
 M=importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(M)
-M.BRIDGE=Path(__file__).parents[1]/"agent-campaign"/"rea-formal-bridge.mjs"
+M.BRIDGE=Path(__file__).with_name("rea-integrated-bridge.mjs")
 GATE=Path(__file__).with_name("mandatory-rea-gate.mjs").resolve()
 SCHEMA="P71_REA_LIVE_AGENT_MANDATORY_GATE_v0.1.0"
 
