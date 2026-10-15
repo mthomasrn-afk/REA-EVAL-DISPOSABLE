@@ -1,6 +1,0 @@
-# PROJ-0071 recovery CP02 — edge-fault run
-Date: 2026-10-15. Last completed accepted: mandatory LangGraph REA gate run 38765261693 PASS consumer containment; agent raw accuracy only 1/3, parent agent FAIL / no promotion; full P71 evaluator still unqualified.
-New graph and fault campaign in public disposable repo, commit 0243b40535c3e68df549bde7cdccc5f6cb797b73, run https://github.com/mthomasrn-afk/REA-EVAL-DISPOSABLE/actions/runs/38767600139.
-Files: screening/edge-fault/rea-api-channel-candidate.mjs, test-api-channel-candidate.mjs, test-real-edge-fault.mjs, .github/workflows/proj0071-rea-edge-fault.yml.
-Semantic boundary: upstream REA graph may contain bridge-member path_id entry_path links via trace-electron-wrapper-path edges. Such links are source-bound STATIC CANDIDATES ONLY; even a successful match does not establish runtime or dynamic IPC. No reclassification of existing lab. Standard public Ubuntu/Windows runners only.
-Next: inspect both CI jobs/logs, classify any CI failures as harness vs tool limitations, preserve negatives; one bounded fix if needed. Register immutable evidence and tested source in private Software_Factory staging under Validator/EdgeFault. Keep governing STATUS.json FAIL; then delete CP01/CP02 after verified closeout.
