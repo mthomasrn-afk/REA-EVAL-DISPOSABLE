@@ -1,0 +1,44 @@
+name: REA bounded candidate screen
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rea-screen.yml'
+      - 'screening/rea-smoke.mjs'
+      - 'README.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rea-screen-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  candidate-screen:
+    name: "REA 6.5.0 / ${{ matrix.os }}"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - name: Checkout synthetic-only disposable repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Configure Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24.15.0'
+      - name: Install EXACT REA release, no package lifecycle scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --ignore-scripts --no-audit --no-fund --no-save --package-lock=false rea-agents@6.5.0
+      - name: Run positive, negative, repeatability and mutation screening
+        shell: bash
+        run: node screening/rea-smoke.mjs
