@@ -17,6 +17,7 @@ BASE = Path(__file__).with_name("local-langgraph-agent.py")
 SPEC = importlib.util.spec_from_file_location("p71_real_model_agent", BASE)
 M = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(M)
+M.BRIDGE = Path(__file__).with_name("rea-formal-bridge.mjs").resolve()
 SCORE_SCHEMA="PROJ0071_REA_EXTENDED_CANDIDATE_CAMPAIGN_V0.1"
 SCENARIOS=("extra-handler","two-bridge-apis","adversarial-decoy","dynamic-invocation")
 
@@ -113,7 +114,7 @@ def check_case(base, name):
                 "failure_class":type(exc).__name__,"checks":checks}
 
 def deterministic_boundary_checks():
-    code=(BASE.parent/"rea-bridge.mjs").read_text()
+    code=M.BRIDGE.read_text()
     runner=BASE.read_text()
     gates={
       "bridge_allowlisted_single_rea_tool":"name:'analyze_javascript_application'" in code,
