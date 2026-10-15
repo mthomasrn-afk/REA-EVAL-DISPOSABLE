@@ -164,8 +164,8 @@ def model_scenario(root:Path,case:str)->dict:
             checks["supported_literal_passes"]=(result=="VERIFIED_LITERAL" and
               pub.get("artifact_global_invoked_channel")==channel)
         elif case=="dynamic":
-            checks["dynamic_never_emits_literal"]=result in ("UNKNOWN","BLOCKED") and
-              pub.get("artifact_global_invoked_channel") is None
+            checks["dynamic_never_emits_literal"]=(result in ("UNKNOWN","BLOCKED") and
+              pub.get("artifact_global_invoked_channel") is None)
             checks["dynamic_witness_reported"]="DYNAMIC_INVOCATION_UNKNOWN" in pub.get("reason_codes",[])
             checks["unsupported_model_claim_if_any_blocked"]=(raw.get("channel") in
               (None,"unknown","UNKNOWN","") or result=="BLOCKED")
