@@ -1,0 +1,70 @@
+name: PROJ-0071 real local-model REA agent trial
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/proj0071-rea-local-agent.yml'
+      - 'screening/agent-campaign/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p71-rea-agent-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  actual-agent:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - name: Source-only checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Prepare Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.15.0'
+      - name: Prepare Python 3.11
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.11'
+      - name: Install scoped real agent and REA candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check 'langgraph>=1.0,<2.0'
+          npm install --ignore-scripts --no-audit --no-fund --no-save --package-lock=false rea-agents@6.5.0
+          python -c 'import langgraph; print("LANGGRAPH_IMPORT_PASS")'
+          node -e "let p=require('rea-agents/package.json'); if(p.version!=='6.5.0')process.exit(1); console.log('REA_VERSION_PASS')"
+      - name: Start CPU-only local Ollama container
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull ollama/ollama:latest
+          docker image inspect ollama/ollama:latest --format 'OLLAMA_CONTAINER_IMAGE={{.Id}}'
+          docker run -d --name p71-ollama --cpus=3 --memory=8g --pids-limit=512 \
+            -e OLLAMA_NUM_PARALLEL=1 -e OLLAMA_KEEP_ALIVE=30m \
+            -p 127.0.0.1:11434:11434 ollama/ollama:latest
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:11434/api/tags >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:11434/api/tags >/dev/null
+          docker exec p71-ollama ollama pull qwen3:1.7b
+          docker exec p71-ollama ollama list
+      - name: Execute actual LangGraph agent with REA MCP
+        shell: bash
+        run: |
+          set -euo pipefail
+          python screening/agent-campaign/local-langgraph-agent.py
+      - name: Stop owned container
+        if: always()
+        shell: bash
+        run: |
+          docker stop p71-ollama || true
