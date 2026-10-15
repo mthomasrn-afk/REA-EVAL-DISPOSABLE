@@ -73,12 +73,24 @@ try{
     const validation=validateChannelClaim({response,claim:{api:'desktop',channel:'test:copy',runtime_verified:false},
       trustedContext:{sourceDigestBefore:before,sourceDigestAfter:digest(dir),expectedEvidenceId:id}});
     const proof=assessApiChannelPath(graph,'desktop','copy','test:copy');
+    if(kind==='wrapped')console.log(JSON.stringify({schema:'P71_WRAPPED_GRAPH_DIAGNOSTIC',
+      verifier:validation.status,reason_codes:validation.reason_codes,
+      proof,invoke_observations:graph.nodes.filter(n=>n.kind==='ipc-channel')
+        .flatMap(n=>n.observations.map(o=>o.properties)).filter(p=>p.mode==='invoke'),
+      bridge_paths:graph.nodes.filter(n=>n.kind==='javascript-expression')
+        .flatMap(n=>n.observations.map(o=>o.properties))
+        .filter(p=>p.entry_kind==='bridge-member')
+        .slice(0,22).map(p=>({entry_path:p.entry_path,step_kind:p.step_kind,
+          step_index:p.step_index,channel:p.channel,path_id:p.path_id}))}));
     if(kind==='dynamic'){
       pass('dynamic-guess-rejected',validation.status==='REJECTED'&&
         validation.reason_codes?.includes('DYNAMIC_INVOCATION_UNKNOWN'));
       pass('dynamic-link-not-established',proof.status==='NOT_ESTABLISHED');
     }else{
-      pass(kind+'-exact-literal-invoke',validation.status==='ACCEPTED_LITERAL',validation.reason_codes.join(','));
+      pass(kind+'-typed-provider-claim-gate',
+        kind==='wrapped'
+          ? validation.status==='REJECTED'&&validation.reason_codes.includes('DYNAMIC_INVOCATION_UNKNOWN')
+          : validation.status==='ACCEPTED_LITERAL',validation.reason_codes.join(','));
       if(kind==='wrapped')pass('wrapped-provider-path',proof.status==='STATIC_CANDIDATE_PATH',
         proof.reason+'; nodecount='+String(graph.nodes.length));
       else pass('direct-is-not-runtime-proof',proof.runtime_verified===false&&
