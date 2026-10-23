@@ -91,7 +91,7 @@ jobs:
               const item=fixture(kind), before=item.digest();
               const response=await timeout(client.callTool({name:'analyze_javascript_application',
                 arguments:{input_path:item.dir}},{timeout:65000}),80000);
-              assert.equal(response.isError,true===false);
+              assert.notEqual(response.isError,true,'MCP actual analysis error');
               assert.equal(response._meta?.provenance?.untrusted_content,true,'REA actual SDK envelope metadata');
               assert.equal(response._meta?.provenance?.source,'analysis_target');
               const evidenceId=response.structuredContent?.evidence_id;
