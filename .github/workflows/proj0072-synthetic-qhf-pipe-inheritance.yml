@@ -1,0 +1,29 @@
+name: PROJ-0072 Synthetic CMD pipe inheritance diagnostic
+on:
+  push:
+    branches:
+      - experiment/proj0072-qhf-pipe-inheritance-20261107
+permissions:
+  contents: read
+jobs:
+  synthetic_windows_pipe:
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.host }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test bounded synthetic CMD/Python captured-pipe behavior
+        shell: pwsh
+        run: |
+          python experiments/proj0072-qhf-pipe/synthetic_pipe_inheritance.py
+      - name: Retain original synthetic observer receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proj0072-synthetic-pipe-${{ matrix.host }}
+          path: ${{ runner.temp }}/p72-synthetic-qhf-pipe-20261107/RESULT.json
+          if-no-files-found: warn
+          retention-days: 14
