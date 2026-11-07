@@ -1,0 +1,25 @@
+name: PROJ-0072 Synthetic CMD pipe transport isolation v2
+on:
+  push:
+    branches:
+      - experiment/proj0072-qhf-pipe-isolation-v2-20261107
+permissions:
+  contents: read
+jobs:
+  synthetic_pipe_v2:
+    runs-on: windows-2022
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Observe direct and CMD synthetic Python pipe behavior
+        shell: pwsh
+        run: |
+          python experiments/proj0072-qhf-pipe/synthetic_pipe_isolation_v2.py
+      - name: Retain original v2 observer receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proj0072-synthetic-cmd-pipe-v2-windows2022
+          path: ${{ runner.temp }}/p72-qhf-stdio-isolation-v2/RESULT.json
+          if-no-files-found: warn
+          retention-days: 14
