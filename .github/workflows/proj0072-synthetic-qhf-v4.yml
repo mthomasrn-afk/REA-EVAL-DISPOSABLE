@@ -1,0 +1,29 @@
+name: PROJ-0072 Synthetic CMD inline pipe ownership v4
+on:
+  push:
+    branches:
+      - experiment/proj0072-qhf-inline-cmd-v4-20261107
+permissions:
+  contents: read
+jobs:
+  synthetic_qhf_pipe_v4:
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.host }}
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check original-style CMD capture and inline alternatives
+        shell: pwsh
+        run: |
+          python experiments/proj0072-qhf-pipe/synthetic_inline_cmd_v4.py
+      - name: Preserve original diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proj0072-qhf-v4-${{ matrix.host }}
+          path: ${{ runner.temp }}/p72-qhf-cmd-inline-v4/RESULT.json
+          if-no-files-found: warn
+          retention-days: 14
