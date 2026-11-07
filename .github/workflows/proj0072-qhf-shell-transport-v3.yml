@@ -1,0 +1,29 @@
+name: PROJ-0072 Synthetic QHF shell transport v3
+on:
+  push:
+    branches:
+      - experiment/proj0072-qhf-transport-v3-20261107
+permissions:
+  contents: read
+jobs:
+  qhf_shell_transport_v3:
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.host }}
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Observe captured pipes and CMD shell transport with synthetic children
+        shell: pwsh
+        run: |
+          python experiments/proj0072-qhf-pipe/synthetic_qhf_shell_transport_v3.py
+      - name: Retain original synthetic diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proj0072-synthetic-qhf-shell-v3-${{ matrix.host }}
+          path: ${{ runner.temp }}/p72-qhf-pipe-transport-v3/RESULT.json
+          if-no-files-found: warn
+          retention-days: 14
