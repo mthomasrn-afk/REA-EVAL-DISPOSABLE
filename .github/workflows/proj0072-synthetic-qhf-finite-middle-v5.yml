@@ -1,0 +1,31 @@
+name: PROJ-0072 Synthetic QHF finite middle and orphan leaf v5
+on:
+  push:
+    branches:
+      - experiment/proj0072-qhf-finite-middle-v5-20261107
+permissions:
+  contents: read
+jobs:
+  finite_middle:
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.host }}
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check QHF-style timeout and finite intermediate parent
+        shell: pwsh
+        run: |
+          python experiments/proj0072-qhf-pipe/synthetic_finite_middle_v5.py
+      - name: Preserve original synthetic receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proj0072-qhf-finite-middle-v5-${{ matrix.host }}
+          path: |
+            ${{ runner.temp }}/p72-qhf-finite-middle-v5/RESULT.json
+            ${{ runner.temp }}/p72-qhf-finite-middle-v5/SYNTHETIC_QHF_CASE_RESULT.json
+          if-no-files-found: warn
+          retention-days: 14
