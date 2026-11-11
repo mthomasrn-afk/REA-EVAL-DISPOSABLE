@@ -63,9 +63,10 @@ const client = new GhidraClient({
 function nonCimSnapshot(pid) {
   assert.ok(Number.isSafeInteger(pid) && pid > 0);
   const ps = '$p=Get-Process -Id ' + String(pid) +
-    ' -ErrorAction SilentlyContinue; if ($null -eq $p) { "{' +
-    '\"found\":false}" } else { @{found=$true;pid=$p.Id;' +
-    'start_utc=$p.StartTime.ToUniversalTime().ToString("o")}' +
+    ' -ErrorAction SilentlyContinue; if ($null -eq $p) {' +
+    ' [pscustomobject]@{found=$false} | ConvertTo-Json -Compress' +
+    ' } else { [pscustomobject]@{found=$true;pid=$p.Id;' +
+    ' start_utc=$p.StartTime.ToUniversalTime().ToString("o")}' +
     ' | ConvertTo-Json -Compress }';
   return JSON.parse(execFileSync("powershell.exe",
     ["-NoProfile", "-NonInteractive", "-Command", ps],
