@@ -1,0 +1,125 @@
+# Public synthetic REA 6.5.0 candidate compatibility only; no Factory qualification.
+# Reuse the previously verified original Windows native addon, not a new launcher.
+name: PROJ-0071 REA non-CIM and single Ghidra lifecycle
+on:
+  push:
+    branches: [experiment/p71-noncim-ghidra-lifecycle-20261110]
+    paths:
+      - '.github/workflows/proj0071-rea-noncim-ghidra-lifecycle.yml'
+      - 'screening/owner-runner/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: p71-noncim-ghidra-lifecycle
+  cancel-in-progress: false
+
+jobs:
+  non-cim-observer:
+    name: Non-CIM PID/start identity and settlement preflight
+    runs-on: windows-2025
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Independent read-only observation (no WMI/CIM)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . ./screening/owner-runner/observer-preflight.ps1 |
+            Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'p71-noncim-observer.json')
+      - name: Retain synthetic non-CIM preflight receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: p71-noncim-observer
+          path: ${{ runner.temp }}/p71-noncim-observer.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  one-original-ghidra-lifecycle:
+    name: Original REA 6.5.0 Ghidra/Job Object start-close
+    needs: non-cim-observer
+    if: ${{ needs.non-cim-observer.result == 'success' }}
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - name: Checkout synthetic disposable probe
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Checkout original REA 6.5.0 at exact release commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: morluto/rea
+          ref: 3b79af28e80785afce9f5998d8f03289402a1847
+          path: upstream
+          persist-credentials: false
+      - name: Assert exact upstream SHA
+        shell: bash
+        working-directory: upstream
+        run: test "$(git rev-parse HEAD)" = 3b79af28e80785afce9f5998d8f03289402a1847
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: upstream/.nvmrc
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Reuse previous passing Windows native addon and original process fixture
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: rea-650-windows-original-process-fixtures
+          run-id: 42932237578
+          github-token: ${{ github.token }}
+          path: upstream/
+      - name: Reuse upstream build and validate original Windows native addon
+        shell: pwsh
+        working-directory: upstream
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run verify:windows-native:artifact
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build:cached
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build:ghidra-windows-fixture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Fetch official Ghidra 12.1.4 with pinned SHA and extract in runner temp
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $env:RUNNER_TEMP 'ghidra_12.1.4_PUBLIC_20260921.zip'
+          $url = 'https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.4_build/ghidra_12.1.4_PUBLIC_20260921.zip'
+          & curl.exe --fail --location --retry 2 --max-time 900 --output $zip $url
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $digest = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($digest -ne 'ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db') { throw 'Ghidra source digest mismatch' }
+          $dest = Join-Path $env:RUNNER_TEMP 'p71-ghidra'
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Expand-Archive -LiteralPath $zip -DestinationPath $dest -Force
+          $matches = @(Get-ChildItem -LiteralPath $dest -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'support/analyzeHeadless.bat') })
+          if ($matches.Count -ne 1) { throw 'Cannot identify exactly one Ghidra 12.1.4 root' }
+          "GHIDRA_INSTALL_DIR=$($matches[0].FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Exactly one original source-owned PE analysis start and close
+        shell: pwsh
+        working-directory: upstream
+        env:
+          REA_ANALYSIS_PROVIDER: ghidra
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node --check ../screening/owner-runner/ghidra-one-lifecycle.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node ../screening/owner-runner/ghidra-one-lifecycle.mjs |
+            Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'p71-ghidra-one-lifecycle.json')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Retain only synthetic result, no private artifacts or provider credentials
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: p71-ghidra-one-lifecycle
+          path: ${{ runner.temp }}/p71-ghidra-one-lifecycle.json
+          if-no-files-found: warn
+          retention-days: 14
