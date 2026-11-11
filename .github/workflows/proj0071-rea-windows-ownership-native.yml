@@ -1,0 +1,115 @@
+# PROJ-0071 public synthetic REA 6.5.0 Windows process-boundary compatibility probe.
+# Reuses exact upstream tests and fixtures; does not publish private Factory source.
+# Not MSI qualification, not a new process supervisor, not an REA/Ghidra live test.
+name: PROJ-0071 REA Windows native ownership probe
+
+on:
+  push:
+    branches:
+      - experiment/proj0071-rea-windows-ownership-20261110
+    paths:
+      - '.github/workflows/proj0071-rea-windows-ownership-native.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p71-windows-owner-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  original-windows-native-artifacts:
+    name: Build original REA 6.5.0 Windows controls
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout upstream REA 6.5.0 exact commit (public source only)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: morluto/rea
+          ref: 3b79af28e80785afce9f5998d8f03289402a1847
+          persist-credentials: false
+      - name: Assert exact upstream source
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = '3b79af28e80785afce9f5998d8f03289402a1847'
+      - name: Setup upstream Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+      - name: Install upstream Windows cross-build prerequisite
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y g++-mingw-w64-x86-64
+      - name: Build upstream original native Windows addon
+        shell: bash
+        run: npm run build:windows-native
+      - name: Verify original Windows addon artifact
+        shell: bash
+        run: npm run verify:windows-native:artifact
+      - name: Build original Windows process-boundary fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .cache/windows-process-boundary
+          x86_64-w64-mingw32-g++ -municode -std=c++17 -O2 -static -Wall -Wextra \
+            -o .cache/windows-process-boundary/process-boundary.exe \
+            tests/fixtures/windows/processBoundary.cc -ladvapi32
+      - name: Preserve original native addon and process fixture
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rea-650-windows-original-process-fixtures
+          path: |
+            native/windows/build/
+            .cache/windows-process-boundary/process-boundary.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  original-windows-ownership-tests:
+    name: Original REA 6.5.0 Windows ownership and settlement
+    needs: original-windows-native-artifacts
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - name: Checkout upstream REA 6.5.0 exact commit (public source only)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: morluto/rea
+          ref: 3b79af28e80785afce9f5998d8f03289402a1847
+          persist-credentials: false
+      - name: Assert exact upstream source
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = '3b79af28e80785afce9f5998d8f03289402a1847'
+      - name: Setup upstream Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+      - name: Install original upstream dependency tree
+        run: npm ci
+      - name: Build original upstream code
+        run: npm run build:cached
+      - name: Restore original Windows process fixtures
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: rea-650-windows-original-process-fixtures
+          path: .
+      - name: Verify exact original native artifact
+        run: npm run verify:windows-native:artifact
+      - name: Run original REA ownership unit and contract tests
+        shell: pwsh
+        run: |
+          npx --no-install vitest run --coverage.enabled=false `
+            src/windows/WindowsOwnedProcess.test.ts `
+            src/process/ProcessOwnership.test.ts `
+            src/process/ProcessOwnership.part2.test.ts `
+            src/process/ProcessOwnership.part3.test.ts `
+            src/process/ProcessOwnership.validation.test.ts `
+            tests/boundary/process/ProcessEvidence.host.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run original real Windows Job Object and descendant-boundary verifier
+        shell: pwsh
+        run: |
+          npm run verify:windows-native -- . "${{ github.workspace }}\.cache\windows-process-boundary\process-boundary.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
