@@ -1,7 +1,7 @@
 # PUBLIC SYNTHETIC OBSERVER: native Get-Process, not CIM/WMI.
 # Observes PID+start identity and exit; cannot independently prove ancestry.
 $ErrorActionPreference = 'Stop'
-$exe = Join-Path $PSHOME 'powershell.exe'
+$exe = (Get-Command pwsh.exe -ErrorAction Stop).Source
 if (-not (Test-Path -LiteralPath $exe)) { throw 'PowerShell executable unavailable' }
 $child = $null
 try {
