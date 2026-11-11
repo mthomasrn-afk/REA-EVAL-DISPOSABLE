@@ -1,0 +1,87 @@
+# PROJ-0071 read-only lineage proof attempt using original REA 6.5.0 native owner.
+# Public synthetic test only: no user targets, no secrets, no Ghidra, no Factory changes.
+name: PROJ-0071 REA original Windows owner lineage
+
+on:
+  push:
+    branches: [experiment/p71-native-lineage-toolhelp-20261110]
+    paths:
+      - '.github/workflows/proj0071-rea-native-lineage.yml'
+      - 'screening/native-lineage/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: p71-original-win-lineage-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  original-owner-lineage:
+    name: Real Windows Toolhelp lineage for original REA owner
+    runs-on: windows-2025
+    timeout-minutes: 18
+    steps:
+      - name: Checkout only public synthetic fixtures
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Checkout original REA 6.5.0 immutable release
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: morluto/rea
+          ref: 3b79af28e80785afce9f5998d8f03289402a1847
+          path: upstream
+          persist-credentials: false
+      - name: Verify original source identity
+        shell: bash
+        working-directory: upstream
+        run: test "$(git rev-parse HEAD)" = 3b79af28e80785afce9f5998d8f03289402a1847
+      - name: Select matching original Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: upstream/.nvmrc
+      - name: Restore earlier verified REA native addon and original fixture
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: rea-650-windows-original-process-fixtures
+          run-id: 42932237578
+          github-token: ${{ github.token }}
+          path: upstream/
+      - name: Bind exact original REA addon and source-owned runtime
+        shell: pwsh
+        working-directory: upstream
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run verify:windows-native:artifact
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build:cached
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Static syntax gate for isolated public probe
+        shell: pwsh
+        working-directory: upstream
+        run: |
+          node --check ../screening/native-lineage/owned-tree-probe.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Observe synthetic owned parent, intermediate and leaf identities
+        shell: pwsh
+        working-directory: upstream
+        env:
+          P71_LINEAGE_OBSERVER: ${{ github.workspace }}\screening\native-lineage\toolhelp-readonly.ps1
+          P71_LINEAGE_RESULT_PATH: ${{ runner.temp }}\p71-lineage-result.json
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node ../screening/native-lineage/owned-tree-probe.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Retain exact public synthetic result receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: p71-original-rea-win-lineage-observation
+          path: ${{ runner.temp }}/p71-lineage-result.json
+          if-no-files-found: warn
+          retention-days: 30
