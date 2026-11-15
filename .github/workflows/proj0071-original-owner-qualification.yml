@@ -1,0 +1,148 @@
+name: PROJ-0071 original REA owner off-host qualification workflow (candidate)
+on:
+  push:
+    branches:
+      - qualification/rea-owner-offhost-v1-20261115
+    paths:
+      - screening/owner-qualification/**
+      - .github/workflows/proj0071-original-owner-qualification.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: proj0071-original-owner-qualification-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  original-source-and-native-crossbuild:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout isolated synthetic-only repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Python from existing Factory CI
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Node for pinned original REA build
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.19.0'
+      - name: Fail-closed portable receipt negative controls
+        run: python -B -m unittest discover -s screening/owner-qualification -p 'test_*.py' -v
+      - name: Acquire exact unmodified upstream REA 6.5.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --quiet --depth 1 --branch rea-agents-6.5.0 https://github.com/morluto/rea.git original-upstream
+          test "$(git -C original-upstream rev-parse HEAD)" = '3b79af28e80785afce9f5998d8f03289402a1847'
+          test -z "$(git -C original-upstream status --porcelain)"
+      - name: Build original native addon with upstream build script
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get -qq update
+          sudo apt-get -qq install -y --no-install-recommends g++-mingw-w64-x86-64
+          cd original-upstream
+          node scripts/build-windows-native.mjs
+      - name: Seal original source and native artifact identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p original-artifact
+          python screening/owner-qualification/source_receipt.py original-upstream original-artifact/source_receipt.json
+          cp original-upstream/native/windows/build/rea-windows-x64.node original-artifact/
+          cp original-upstream/native/windows/build/manifest.json original-artifact/
+          python -c "import json,hashlib;from pathlib import Path;p=Path('original-artifact');m=json.loads((p/'manifest.json').read_text());r=json.loads((p/'source_receipt.json').read_text());d=hashlib.sha256((p/'rea-windows-x64.node').read_bytes()).hexdigest();assert d==m['artifactSha256']==r['artifact_sha256'];print('EXACT_ORIGINAL_ARTIFACT_SHA256',d)"
+      - name: Retain only synthetic unqualified CI artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: original-rea-owner-native-ci-only
+          path: original-artifact/
+          if-no-files-found: error
+          retention-days: 1
+  native-windows:
+    needs: original-source-and-native-crossbuild
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    steps:
+      - name: Checkout synthetic harness without credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Node x64
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.19.0'
+      - name: Python 3.11
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: original-rea-owner-native-ci-only
+          path: original-artifact
+      - name: Original-owner nested lifecycle with independent held-process waits
+        shell: pwsh
+        run: |
+          python -B screening/owner-qualification/owner_host_acceptance.py --addon original-artifact/rea-windows-x64.node --manifest original-artifact/manifest.json --source-receipt original-artifact/source_receipt.json --output-root "$env:RUNNER_TEMP" --host-label ci
+      - name: Preserve bounded synthetic test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: original-rea-owner-test-${{ matrix.os }}
+          path: ${{ runner.temp }}/REA_OWNER_ACCEPTANCE_*/
+          if-no-files-found: warn
+          retention-days: 1
+  stage-oneclick-candidate:
+    needs: [original-source-and-native-crossbuild, native-windows]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: original-rea-owner-native-ci-only
+          path: original-artifact
+      - name: Stage one-click MSI acceptance candidate, not qualified or released
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+          import hashlib, json
+          root=Path('screening/owner-qualification')
+          artifacts=Path('original-artifact')
+          files={s:(root/s) for s in ('RUN_ACCEPTANCE.cmd','owner_host_acceptance.py','native_owner_actor.mjs')}
+          files.update({s:(artifacts/s) for s in ('rea-windows-x64.node','manifest.json','source_receipt.json')})
+          out=Path('REA_OWNER_MSI_ACCEPTANCE_CANDIDATE_UNQUALIFIED.zip')
+          digests={}
+          with ZipFile(out,'w',ZIP_DEFLATED) as z:
+              for name,path in sorted(files.items()):
+                  blob=path.read_bytes()
+                  z.writestr(name,blob)
+                  digests[name]=hashlib.sha256(blob).hexdigest()
+              z.writestr('PACKAGE_STATUS.json',json.dumps({
+                  'status':'CANDIDATE_NOT_QUALIFIED_NOT_AUTHORIZED_FOR_MSI',
+                  'source_commit':'3b79af28e80785afce9f5998d8f03289402a1847',
+                  'contents_sha256':digests,
+                  'original_c5':'NOT_QUALIFIED',
+                  'codex_campaign':'NOT_DESIGNED_UNTIL_RETURN_REVIEW'
+              },indent=2)+'\n')
+          print('STAGED_NOT_RELEASED',out.name,hashlib.sha256(out.read_bytes()).hexdigest())
+          PY
+      - name: Hold provisional candidate in disposable CI (not a release)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: owner-msi-acceptance-CANDIDATE-DO-NOT-EXECUTE
+          path: REA_OWNER_MSI_ACCEPTANCE_CANDIDATE_UNQUALIFIED.zip
+          if-no-files-found: error
+          retention-days: 1
