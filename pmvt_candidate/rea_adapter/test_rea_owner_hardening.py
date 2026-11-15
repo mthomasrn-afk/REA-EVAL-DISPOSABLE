@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from rea_adapter.rea_owner_journal import build_journal
-from rea_adapter.test_rea_owner_journal import snap
+from rea_adapter.test_rea_owner_journal import sample as snap
 from rea_adapter.apply_rea_owner_probe import run, splice
 from pmvt import validate_owner_journal
 
