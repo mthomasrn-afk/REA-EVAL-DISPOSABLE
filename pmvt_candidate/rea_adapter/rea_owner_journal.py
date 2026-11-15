@@ -33,8 +33,13 @@ def validate_snapshot(raw):
     for field in ("job_limit_flags","active_processes","total_processes","total_terminated_processes"):
         if type(raw[field]) is not int or not 0 <= raw[field] <= 0xffffffff:
             raise ValueError("INVALID_ACCOUNTING_" + field)
-    if raw["active_processes"] > raw["total_processes"]:
+    if raw["active_processes"] > raw["total_processes"] or raw["total_terminated_processes"] > raw["total_processes"]:
         raise ValueError("INCONSISTENT_ACCOUNTING")
+    flags = raw["job_limit_flags"]
+    if raw["kill_on_owner_close"] != bool(flags & 0x2000) or raw["breakaway_disabled"] != (not bool(flags & 0x1800)):
+        raise ValueError("INCONSISTENT_JOB_POLICY_FLAGS")
+    if raw["resume_succeeded"] and not raw["member_before_resume"]:
+        raise ValueError("RESUME_WITHOUT_POSITIVE_MEMBERSHIP")
     return raw
 
 def build_journal(run_id, initial, final=None, *, cleanup_mode=None, owner_released=False):

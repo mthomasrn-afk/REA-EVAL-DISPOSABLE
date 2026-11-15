@@ -73,6 +73,10 @@ jobs:
           path: disposable-native
       - name: Native kernel owner snapshot and independent PMVT root identity
         run: node pmvt_candidate/rea_adapter/native_owner_probe_smoke.mjs disposable-native/rea-windows-x64.node
+      - name: Independent held-process identities across four original-owner lifecycle paths
+        shell: pwsh
+        run: |
+          python -B pmvt_candidate/rea_adapter/run_native_owner_lifecycle.py disposable-native/rea-windows-x64.node disposable-native/manifest.json
       - name: Explicit proof boundary
         run: |
           echo "SYNTHETIC_ONLY: owner snapshot is owner-attributed, not REA independent C5"

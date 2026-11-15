@@ -13,6 +13,15 @@ import time
 from pathlib import Path
 
 SCHEMA = "pmvt.owner-journal.v0.1"
+DATA_FIELDS = {
+    "job_created": {"job_ref", "source", "kill_on_owner_close", "breakaway_disabled", "job_limit_flags"},
+    "child_suspended": {"pid", "creation_filetime_100ns"},
+    "membership_checked": {"pid", "creation_filetime_100ns", "member"},
+    "child_resumed": {"pid", "creation_filetime_100ns"},
+    "cleanup_started": {"mode", "source"},
+    "job_settled": {"active_processes", "total_processes", "total_terminated_processes", "source"},
+    "owner_released": {"source"},
+}
 EVENTS = (
     "job_created", "child_suspended", "membership_checked", "child_resumed",
     "cleanup_started", "job_settled", "owner_released",
@@ -58,6 +67,8 @@ def validate_owner_journal(journal: object) -> dict:
         kind, data = record["event"], record["data"]
         if kind not in EVENTS or not isinstance(data, dict) or kind in details:
             return fail("INVALID_OR_DUPLICATED_EVENT")
+        if not set(data).issubset(DATA_FIELDS[kind]):
+            return fail("DISALLOWED_OR_PRIVATE_EVENT_DATA")
         sequence.append(kind)
         details[kind] = data
 
@@ -77,7 +88,8 @@ def validate_owner_journal(journal: object) -> dict:
         start = root.get("creation_filetime_100ns")
         if (type(root.get("pid")) is not int or root["pid"] <= 0 or
             not isinstance(start, str) or not start.isascii() or
-            not start.isdecimal() or int(start) <= 0):
+            not start.isdecimal() or not (1 <= len(start) <= 20) or
+            not (0 < int(start) <= 0xffffffffffffffff)):
             return fail("MISSING_STABLE_ROOT_IDENTITY")
     if "membership_checked" in details:
         member = details["membership_checked"].get("member")
@@ -99,9 +111,26 @@ def validate_owner_journal(journal: object) -> dict:
             return fail("INVALID_ACTIVE_PROCESS_COUNT")
     if "owner_released" in details and "job_settled" not in details:
         return fail("RELEASE_WITHOUT_SETTLEMENT_REPORT")
+    if "job_settled" in details and "cleanup_started" not in details:
+        return fail("SETTLEMENT_WITHOUT_CLEANUP_BOUNDARY")
+    job_start = details["job_created"]
+    for name in ("kill_on_owner_close", "breakaway_disabled"):
+        if name in job_start and type(job_start[name]) is not bool:
+            return fail("INVALID_JOB_POLICY_BOOLEAN")
+    flags = job_start.get("job_limit_flags")
+    if flags is not None:
+        if type(flags) is not int or not 0 <= flags <= 0xffffffff:
+            return fail("INVALID_JOB_LIMIT_FLAGS")
+        if ("kill_on_owner_close" in job_start and job_start["kill_on_owner_close"] != bool(flags & 0x2000)):
+            return fail("INCONSISTENT_KILL_ON_CLOSE_POLICY")
+        if ("breakaway_disabled" in job_start and job_start["breakaway_disabled"] != (not bool(flags & 0x1800))):
+            return fail("INCONSISTENT_BREAKAWAY_POLICY")
 
     result["run_id"] = run_id
     result["assertions"].append(_report("journal_structure", "PASS", "SCHEMA_AND_EVENT_ORDER_ONLY"))
+    if job_start.get("kill_on_owner_close") is False or job_start.get("breakaway_disabled") is False:
+        result["assertions"].append(_report("owner_reported_job_policy", "FAIL", "UNSAFE_JOB_POLICY"))
+        result["rea_c5"] = "NOT_QUALIFIED"
     membership = details.get("membership_checked", {}).get("member")
     if membership is False:
         result["assertions"].append(_report("owner_reported_membership", "FAIL", "OWNER_REPORTED_NONMEMBER"))
