@@ -3,6 +3,16 @@ setlocal
 rem BOUNDED REA ORIGINAL OWNER CONFORMANCE, NOT FULL REA ACCEPTANCE.
 rem This source-only candidate must not be run on MSI until qualified and admitted.
 set "ROOT=%~dp0"
+rem Reject staged CI candidate before ANY native execution.
+if not exist "%ROOT%PACKAGE_STATUS.json" (
+  echo BLOCKED: Acceptance package has no admission record.
+  exit /b 23
+)
+powershell -NoProfile -NonInteractive -Command "$p=Get-Content -LiteralPath '%ROOT%PACKAGE_STATUS.json' -Raw | ConvertFrom-Json; if($p.status -ne 'ADMITTED_NATIVE_ACCEPTANCE') { exit 23 }"
+if errorlevel 1 (
+  echo BLOCKED: This candidate is not admitted for MSI execution.
+  exit /b 23
+)
 if not defined REA_CLEANROOM_OUTPUT set "REA_CLEANROOM_OUTPUT=C:\SOFTWARE_FACTORY\REA Cleanroom\Output"
 if not exist "%REA_CLEANROOM_OUTPUT%\" (
   echo BLOCKED: Original REA cleanroom Output directory was not found.
