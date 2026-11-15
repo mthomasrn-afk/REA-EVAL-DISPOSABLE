@@ -91,6 +91,10 @@ jobs:
         shell: pwsh
         run: |
           python -B screening/owner-qualification/owner_host_acceptance.py --addon original-artifact/rea-windows-x64.node --manifest original-artifact/manifest.json --source-receipt original-artifact/source_receipt.json --output-root "$env:RUNNER_TEMP" --host-label ci
+      - name: Verify smaller MSI conformance shape on the CI runner (NOT MSI proof)
+        shell: pwsh
+        run: |
+          python -B screening/owner-qualification/owner_host_acceptance.py --addon original-artifact/rea-windows-x64.node --manifest original-artifact/manifest.json --source-receipt original-artifact/source_receipt.json --output-root "$env:RUNNER_TEMP" --host-label ci-msi-dryrun
       - name: Preserve bounded synthetic test evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
