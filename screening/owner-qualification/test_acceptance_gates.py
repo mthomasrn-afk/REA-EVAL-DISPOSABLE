@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from owner_host_acceptance import PIN, ORIGINAL, preflight
+from owner_host_acceptance import PIN, ORIGINAL, preflight, installed_addon_binding
 
 
 class OriginalOwnerEvidenceTests(unittest.TestCase):
@@ -70,6 +70,16 @@ class OriginalOwnerEvidenceTests(unittest.TestCase):
         self.receipt.unlink()
         with self.assertRaisesRegex(ValueError, "MISSING_ORIGINAL"):
             self.accepted()
+
+    def test_explicit_installed_addon_binding_matches(self):
+        expected = hashlib.sha256(self.addon.read_bytes()).hexdigest()
+        self.assertEqual(installed_addon_binding(expected, self.addon), "MATCH")
+
+    def test_explicit_installed_addon_mismatch_is_not_pass(self):
+        self.assertEqual(installed_addon_binding("0" * 64, self.addon), "MISMATCH")
+
+    def test_missing_explicit_installed_addon_is_not_pass(self):
+        self.assertEqual(installed_addon_binding("0" * 64, self.addon.with_name("missing.node")), "NOT_LOCATED")
 
     def test_oversized_receipt_fails(self):
         self.receipt.write_bytes(b"x" * 65537)
