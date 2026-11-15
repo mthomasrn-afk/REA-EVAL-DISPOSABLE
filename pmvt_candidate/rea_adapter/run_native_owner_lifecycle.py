@@ -110,7 +110,11 @@ def case(mode):
         for pipe in (actor.stdin,actor.stdout,actor.stderr):
             if pipe:pipe.close()
 
-cases=[case(mode) for mode in ("natural","terminate","close","crash")]
+cases=[]
+for mode in ("natural","terminate","close","crash"):
+    outcome=case(mode)
+    cases.append(outcome)
+    print(json.dumps({"scope":"SYNTHETIC_ONLY","case":outcome}),flush=True)
 print(json.dumps({"schema":"pmvt.offhost-owner-adverse.v0.1","scope":"SYNTHETIC_ONLY",
     "state":"BOUNDED_WINDOWS_TEST_PASS","cases":cases,
     "original_rea_c5":"INDETERMINATE","msi":"NOT_RUN"},sort_keys=True))

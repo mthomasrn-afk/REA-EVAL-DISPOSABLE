@@ -5,6 +5,8 @@ on:
       - candidate/proj0072-pmvt-owner-v011-20261115
     paths:
       - pmvt_candidate/rea_adapter/**
+      - pmvt_candidate/pmvt.py
+      - pmvt_candidate/test_pmvt_hardening.py
       - .github/workflows/proj0072-pmvt-owner-v011.yml
 permissions:
   contents: read
@@ -27,8 +29,10 @@ jobs:
           node-version: '22.19.0'
       - name: Existing PMVT and new owner-adapter paired-negative controls
         run: |
-          python -B -m unittest discover -s pmvt_candidate -p test_pmvt.py -v
-          python -B -m unittest discover -s pmvt_candidate/rea_adapter -p test_rea_owner_journal.py -v
+          python -B -m unittest discover -s pmvt_candidate -p 'test_*.py' -v
+          python -B -m unittest discover -s pmvt_candidate/rea_adapter -p 'test_*.py' -v
+          python -B -m py_compile pmvt_candidate/rea_adapter/run_native_owner_lifecycle.py
+          node --check pmvt_candidate/rea_adapter/native_owner_lifecycle_actor.mjs
       - name: Read exact public pinned upstream into disposable runner ONLY
         run: |
           git clone --quiet --depth 1 --branch rea-agents-6.5.0 https://github.com/morluto/rea.git upstream

@@ -52,6 +52,7 @@ try{
   console.log("PMVT_READY "+JSON.stringify({mode:mode,root_pid:launch.pid,descendant_pid:desc,owner_snapshot:first}));
   const cmd=await new Promise(resolve=>process.stdin.once("data",b=>resolve(String(b).trim())));
   assert.equal(cmd,"proceed");
+  process.stdin.destroy(); // Never keep the disposable owner alive after command.
   if(mode==="crash")throw Error("CRASH_MODE_REQUIRES_EXTERNAL_OWNER_KILL");
   if(mode==="terminate"){
     assert.equal(native.call("process_terminate",[handle]),true);
