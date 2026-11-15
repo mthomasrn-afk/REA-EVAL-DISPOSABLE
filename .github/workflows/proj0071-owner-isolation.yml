@@ -40,6 +40,31 @@ jobs:
           sudo apt-get -qq install -y --no-install-recommends g++-mingw-w64-x86-64
           node original-upstream/scripts/build-windows-native.mjs
           node screening/owner-isolation/standalone/scripts/build-windows-native.mjs
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib,struct,json
+          a=Path('original-upstream/native/windows/build/rea-windows-x64.node').read_bytes()
+          b=Path('screening/owner-isolation/standalone/native/windows/build/rea-windows-x64.node').read_bytes()
+          diffs=[i for i,(x,y) in enumerate(zip(a,b)) if x!=y]
+          print('BINARY_DIAG',json.dumps({'original_sha':hashlib.sha256(a).hexdigest(),
+            'copy_sha':hashlib.sha256(b).hexdigest(),'a_length':len(a),'b_length':len(b),
+            'difference_count':len(diffs),'first_20_diff_offsets':diffs[:20]}))
+          def pe(data):
+              offset=struct.unpack_from('<I',data,0x3c)[0]
+              n=struct.unpack_from('<H',data,offset+6)[0]
+              optional=struct.unpack_from('<H',data,offset+20)[0]
+              print('PE_COFF_TIMEDATESTAMP',struct.unpack_from('<I',data,offset+8)[0])
+              sections=[]
+              for j in range(n):
+                  o=offset+24+optional+j*40
+                  name=data[o:o+8].split(b'\\0')[0].decode('ascii','replace')
+                  size,ptr=struct.unpack_from('<II',data,o+16)
+                  sections.append((name,ptr,ptr+size))
+              return sections
+          sections=pe(a)
+          print('PE_SECTION_DIFFS',json.dumps({name:sum(lo<=i<hi for i in diffs)
+            for name,lo,hi in sections if any(lo<=i<hi for i in diffs)}))
+          PY
           python -B screening/owner-isolation/isolation_verify.py compare original-upstream screening/owner-isolation/standalone isolated-artifact/isolation_receipt.json
           python screening/owner-qualification/source_receipt.py original-upstream isolated-artifact/source_receipt.json
           cp screening/owner-isolation/standalone/native/windows/build/rea-windows-x64.node isolated-artifact/
