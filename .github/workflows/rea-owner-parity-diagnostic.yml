@@ -1,0 +1,57 @@
+name: REA original owner — bounded native PE parity diagnostic ONLY
+on:
+  push:
+    branches:
+      - diagnostic/rea-owner-build-parity-20261115
+    paths:
+      - screening/owner-parity-diagnostic/**
+      - .github/workflows/rea-owner-parity-diagnostic.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: rea-owner-parity-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  source-bound-binary-reproducibility:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout disposable test source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Node upstream build runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.19.0'
+      - name: Source-bound original upstream and isolated byte verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --quiet --depth 1 --branch rea-agents-6.5.0 https://github.com/morluto/rea.git original-upstream
+          python -B screening/owner-isolation/isolation_verify.py verify original-upstream screening/owner-isolation/standalone
+      - name: Same-root repeat and off-host PE section comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get -qq update
+          sudo apt-get -qq install -y --no-install-recommends g++-mingw-w64-x86-64
+          mkdir -p snapshots
+          node original-upstream/scripts/build-windows-native.mjs
+          cp original-upstream/native/windows/build/rea-windows-x64.node snapshots/original_a.node
+          node screening/owner-isolation/standalone/scripts/build-windows-native.mjs
+          cp screening/owner-isolation/standalone/native/windows/build/rea-windows-x64.node snapshots/copy_a.node
+          node original-upstream/scripts/build-windows-native.mjs
+          cp original-upstream/native/windows/build/rea-windows-x64.node snapshots/original_b.node
+          node screening/owner-isolation/standalone/scripts/build-windows-native.mjs
+          cp screening/owner-isolation/standalone/native/windows/build/rea-windows-x64.node snapshots/copy_b.node
+          python -B screening/owner-parity-diagnostic/diagnose.py snapshots/original_a.node snapshots/copy_a.node snapshots/original_b.node snapshots/copy_b.node results
+      - name: Preserve tiny non-executable diagnostic receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rea-owner-binary-reproducibility-diagnostic-NOT-QUALIFICATION
+          path: results/DIAGNOSTIC_RESULT.json
+          retention-days: 5
+          if-no-files-found: warn
