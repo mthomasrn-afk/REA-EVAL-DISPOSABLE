@@ -21,13 +21,13 @@ def digest(blob):
 def sections(blob):
     if blob[:2]!=b"MZ":raise RuntimeError("NOT_PE")
     pe=struct.unpack_from("<I",blob,0x3c)[0]
-    if blob[pe:pe+4]!=b"PE\\0\\0":raise RuntimeError("NOT_PE_SIGNATURE")
+    if blob[pe:pe+4]!=bytes((80,69,0,0)):raise RuntimeError("NOT_PE_SIGNATURE")
     total=struct.unpack_from("<H",blob,pe+6)[0]
     optsize=struct.unpack_from("<H",blob,pe+20)[0]
     result={}
     for j in range(total):
         o=pe+24+optsize+j*40
-        name=blob[o:o+8].split(b"\\0")[0].decode("ascii","replace")
+        name=blob[o:o+8].split(bytes((0,)))[0].decode("ascii","replace")
         size,raw=struct.unpack_from("<II",blob,o+16)
         if raw+size>len(blob): raise RuntimeError("PE_SECTION_OUT_OF_BOUNDS")
         result[name]={"raw_offset":raw,"raw_bytes":size,"sha256":digest(blob[raw:raw+size])}
