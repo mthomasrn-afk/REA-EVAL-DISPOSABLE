@@ -1,0 +1,89 @@
+name: PROJ-0071 copied original owner — isolated Windows native proof (NOT C5)
+on:
+  push:
+    branches:
+      - experiment/rea-owner-standalone-copy-20261115
+    paths:
+      - screening/owner-isolation/**
+      - .github/workflows/proj0071-owner-isolation.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: proj0071-owner-isolation-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  copied-owner-native-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.19.0'
+      - name: Fetch exact original upstream, for byte verification only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --quiet --depth 1 --branch rea-agents-6.5.0 https://github.com/morluto/rea.git original-upstream
+          python -B screening/owner-isolation/isolation_verify.py verify original-upstream screening/owner-isolation/standalone
+      - name: Cross-build ORIGINAL and COPIED native root independently
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get -qq update
+          sudo apt-get -qq install -y --no-install-recommends g++-mingw-w64-x86-64
+          node original-upstream/scripts/build-windows-native.mjs
+          node screening/owner-isolation/standalone/scripts/build-windows-native.mjs
+          python -B screening/owner-isolation/isolation_verify.py compare original-upstream screening/owner-isolation/standalone isolated-artifact/isolation_receipt.json
+          python screening/owner-qualification/source_receipt.py original-upstream isolated-artifact/source_receipt.json
+          cp screening/owner-isolation/standalone/native/windows/build/rea-windows-x64.node isolated-artifact/
+          cp screening/owner-isolation/standalone/native/windows/build/manifest.json isolated-artifact/
+      - name: Upload test-only isolated owner build; NOT a release
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: exact-copied-rea-owner-native-test-only
+          path: isolated-artifact/
+          retention-days: 2
+          if-no-files-found: error
+  test-copied-owner-on-windows:
+    needs: copied-owner-native-build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.19.0'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: exact-copied-rea-owner-native-test-only
+          path: isolated-artifact
+      - name: Validate original identity and isolation receipt fail closed
+        shell: pwsh
+        run: |
+          python -c "import json,hashlib,pathlib;d=pathlib.Path('isolated-artifact');x=json.loads((d/'isolation_receipt.json').read_text());r=json.loads((d/'source_receipt.json').read_text());a=(d/'rea-windows-x64.node').read_bytes();s=hashlib.sha256(a).hexdigest();assert x['isolated_build_binary_identical'] and x['native_binary_sha256']==r['artifact_sha256']==s;print('ISOLATED_COPY_IDENTITY_PASS',s)"
+      - name: Independent kernel-handle lifecycle tests of COPIED addon
+        shell: pwsh
+        run: |
+          python -B screening/owner-qualification/owner_host_acceptance.py --addon isolated-artifact/rea-windows-x64.node --manifest isolated-artifact/manifest.json --source-receipt isolated-artifact/source_receipt.json --output-root "$env:RUNNER_TEMP" --host-label ci
+      - name: Independent unrelated-process negative controls
+        shell: pwsh
+        run: |
+          python -B screening/owner-isolation/foreign_process_test.py isolated-artifact/rea-windows-x64.node
+      - name: Never substitute copied-owner CI for original C5
+        run: echo "ORIGINAL_REA_C5_NOT_QUALIFIED; NO_MSI_ACCEPTANCE; NO_PMVT_REQUIREMENT"
