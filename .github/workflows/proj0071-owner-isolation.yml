@@ -76,9 +76,14 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: exact-copied-rea-owner-native-test-only
-          path: |
-            isolated-artifact/
-            original-artifact/
+          path: isolated-artifact/
+          retention-days: 2
+          if-no-files-found: error
+      - name: Upload ORIGINAL native control build, test-only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: exact-original-rea-owner-native-control
+          path: original-artifact/
           retention-days: 2
           if-no-files-found: error
   test-copied-owner-on-windows:
@@ -103,6 +108,10 @@ jobs:
         with:
           name: exact-copied-rea-owner-native-test-only
           path: isolated-artifact
+      - uses: actions/download-artifact@v4
+        with:
+          name: exact-original-rea-owner-native-control
+          path: original-artifact
       - name: Validate original identity and isolation receipt fail closed
         shell: pwsh
         run: |
@@ -139,7 +148,7 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import json,sys
-          p=Path("evidence/isolated-artifact/isolation_receipt.json")
+          p=Path("evidence/isolation_receipt.json")
           if not p.is_file():
               print("BLOCKED_BINARY_RECEIPT_UNAVAILABLE");sys.exit(2)
           d=json.loads(p.read_text())
