@@ -1,0 +1,79 @@
+name: PROJ-0072 PMVT owner-probe candidate (NOT REA C5)
+on:
+  push:
+    branches:
+      - candidate/proj0072-pmvt-owner-v011-20261115
+    paths:
+      - pmvt_candidate/rea_adapter/**
+      - .github/workflows/proj0072-pmvt-owner-v011.yml
+permissions:
+  contents: read
+concurrency:
+  group: pmvt-owner-candidate-v011
+  cancel-in-progress: true
+jobs:
+  source-and-cross-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.19.0'
+      - name: Existing PMVT and new owner-adapter paired-negative controls
+        run: |
+          python -B -m unittest discover -s pmvt_candidate -p test_pmvt.py -v
+          python -B -m unittest discover -s pmvt_candidate/rea_adapter -p test_rea_owner_journal.py -v
+      - name: Read exact public pinned upstream into disposable runner ONLY
+        run: |
+          git clone --quiet --depth 1 --branch rea-agents-6.5.0 https://github.com/morluto/rea.git upstream
+          test "$(git -C upstream rev-parse HEAD)" = "3b79af28e80785afce9f5998d8f03289402a1847"
+          python pmvt_candidate/rea_adapter/apply_rea_owner_probe.py upstream --check
+          python pmvt_candidate/rea_adapter/apply_rea_owner_probe.py upstream
+          test "$(git -C upstream diff --name-only | wc -l)" -eq 2
+          git -C upstream diff --check
+      - name: Build disposable candidate using original upstream build path
+        run: |
+          sudo apt-get -qq update
+          sudo apt-get -qq install -y --no-install-recommends g++-mingw-w64-x86-64
+          cd upstream
+          node scripts/build-windows-native.mjs
+          sha256sum native/windows/build/rea-windows-x64.node
+      - name: Transfer test-only candidate; never a release
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pmvt-owner-probe-disposable-unqualified
+          path: |
+            upstream/native/windows/build/rea-windows-x64.node
+            upstream/native/windows/build/manifest.json
+          retention-days: 1
+          if-no-files-found: error
+  hosted-windows-synthetic-native:
+    needs: source-and-cross-build
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.19.0'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: pmvt-owner-probe-disposable-unqualified
+          path: disposable-native
+      - name: Native kernel owner snapshot and independent PMVT root identity
+        run: node pmvt_candidate/rea_adapter/native_owner_probe_smoke.mjs disposable-native/rea-windows-x64.node
+      - name: Explicit proof boundary
+        run: |
+          echo "SYNTHETIC_ONLY: owner snapshot is owner-attributed, not REA independent C5"
+          echo "NO MSI, NO Ghidra, NO protected REA edits, NO QHF/NEBQ PASS"
