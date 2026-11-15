@@ -131,6 +131,7 @@ def case(mode, artifact, actor):
         else:
             proc.stdin.write("go\n")
             proc.stdin.flush()
+            proc.stdin.close()  # Release Node stdin event-loop lease after command.
             done = marker(proc.stdout, "OWNER_DONE ", 9)
             if done.get("owner_returned") is not True:
                 raise AssertionError("OWNER_NO_NORMAL_RETURN")
@@ -228,7 +229,7 @@ def main():
                 report["tests"].append(result)
             except BaseException as exc:
                 report["tests"].append({"name": mode, "status": "FAIL",
-                                        "reason": type(exc).__name__ + ":" + str(exc)[:160]})
+                                        "reason": type(exc).__name__ + ":" + str(exc)[-260:]})
                 break  # Stop immediately; no automatic retries after unsafe uncertainty.
         if len(report["tests"]) == 5 and all(t["status"] == "PASS" for t in report["tests"]):
             report["overall"] = "PASS_SCOPED_HOST_CONFORMANCE_ONLY"
