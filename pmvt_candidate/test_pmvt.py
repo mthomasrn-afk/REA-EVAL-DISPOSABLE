@@ -1,5 +1,7 @@
 """Synthetic controls only; PASS means narrow software assertions, never REA C5."""
 import os
+import subprocess
+import sys
 import unittest
 
 from pmvt import SCHEMA, observe_pid, validate_owner_journal
@@ -127,6 +129,33 @@ class NativeObservationTests(unittest.TestCase):
         o = observe_pid("synthetic-test", 123, 0, 1)
         if os.name != "nt": self.assertEqual(o["state"], "NOT_RUN")
         else: self.assertIn(o["state"], ("INDETERMINATE", "EXITED_WITHIN_INTERVAL", "ALIVE_AT_CUTOFF"))
+
+    @unittest.skipUnless(os.name == "nt", "Windows-only native test")
+    def test_observe_synthetic_natural_exit(self):
+        # The test harness launches its own harmless child; PMVT never launches it.
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(0.25)"],
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
+        try:
+            o = observe_pid("synthetic-child", child.pid, 1100, 25)
+            self.assertEqual(o["state"], "EXITED_WITHIN_INTERVAL")
+            self.assertTrue(o["retained_process_handle"])
+            self.assertGreater(int(o["process_identity"]["creation_filetime_100ns"]), 0)
+            self.assertEqual(o["acceptance"], "NOT_ASSESSED")
+        finally:
+            child.wait(timeout=5)
+
+    @unittest.skipUnless(os.name == "nt", "Windows-only native test")
+    def test_observe_does_not_terminate_synthetic_child(self):
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(0.9)"],
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
+        try:
+            o = observe_pid("synthetic-child", child.pid, 50, 10)
+            self.assertEqual(o["state"], "ALIVE_AT_CUTOFF")
+            self.assertIsNone(child.poll(), "PMVT observer must not terminate child")
+        finally:
+            child.wait(timeout=5)
 
     @unittest.skipUnless(os.name == "nt", "Windows-only native test")
     def test_no_unbounded_wait(self):

@@ -6,7 +6,7 @@ A reusable **Process Monitoring & Verification Tool** candidate under PROJ-0072,
 
 - `pmvt.py validate-journal FILE`: strict, bounded verification of a **program-owner's untrusted lifecycle claims**. Structural PASS is a parser/order/run-binding assertion only. Every positive REA C5, exact-Job, complete descendant and owner-crash safety claim remains **INDETERMINATE**. Reported nonmembership or unclean Job is a negative. Partial journal (e.g. crash) cannot become cleanup PASS.
 - `pmvt.py observe-pid --pid P --run-id R --duration-ms 200`: read-only Windows kernel observer of **one explicitly named process**. Holds a process handle (`PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE`), captures kernel creation identity, and waits for that handle to signal or a bounded cutoff; closes it. No PID sweep, Job handles, launch/kill, privilege expansion, ETW, network access, telemetry, secret or process-output capture. Unsupported Linux outcome is `NOT_RUN`.
-- `test_pmvt.py`: synthetic good/paired-negative journal tests and bounded native Windows runner self-PID observation. Never proves that REA uses this observer or that any descendant has been contained.
+- `test_pmvt.py`: synthetic good/paired-negative journal tests and bounded native Windows runner self-PID observation plus test-harness-owned synthetic child natural-exit and noninterference controls. Never proves that REA uses this observer or that any descendant has been contained.
 
 The candidate is dependency-free Python 3.11 standard library, with CLI JSON results only. A caller separately controls evidence storage; no new archive, logging, QHF, privacy or acceptance engine is introduced.
 
