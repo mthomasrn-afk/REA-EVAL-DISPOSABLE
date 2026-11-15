@@ -5,7 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from rea_adapter.rea_owner_journal import build_journal
 from rea_adapter.test_rea_owner_journal import sample as snap
-from rea_adapter.apply_rea_owner_probe import run, splice
+from rea_adapter.apply_rea_owner_probe import apply, splice
 from pmvt import validate_owner_journal
 
 class AdapterHardening(unittest.TestCase):
@@ -37,8 +37,8 @@ class AdapterHardening(unittest.TestCase):
             build_journal("private",snap(command_line="SECRET"))
 
     def test_exact_source_patch_guards(self):
-        with self.assertRaisesRegex(RuntimeError,"REQUIRES_PINNED_GIT_CLONE"):
-            run(Path(__file__).resolve().parents[1],True)
+        with self.assertRaisesRegex(RuntimeError,"DISPOSABLE_GIT_CLONE_REQUIRED"):
+            apply(Path(__file__).resolve().parents[1],True)
         for source,old in (("","x"),("abc","z"),("aaaa","aa")):
             with self.assertRaisesRegex(RuntimeError,"SOURCE_ANCHOR_MISMATCH"):
                 splice(source,old,"new","negative")
