@@ -72,7 +72,7 @@ def record(upstream, isolated, directory):
          "artifact_bytes":len(copied),"original_c5":"NOT_QUALIFIED",
          "component_qualification":"NOT_QUALIFIED",
          "scope":"EXACT_SOURCE_SEPARATE_BUILD_ONLY"}
-    (directory/"isolation_receipt.json").write_text(json.dumps(observation,indent=2,sort_keys=True)+"\\n")
+    (directory/"isolation_receipt.json").write_text(json.dumps(observation,indent=2,sort_keys=True)+"\n")
     source_receipt={"schema":"rea.copied-original-native-source-receipt.v1",
          "source_commit":PIN,"source_dirty":False,"artifact_sha256":sha(copied),
          "original_blob_shas":BLOBS,"original_upstream_copied_byte_exactly":True,
@@ -80,7 +80,7 @@ def record(upstream, isolated, directory):
          "original_binary_sha256":sha(original),
          "binary_byte_equivalence_gate":observation["binary_byte_equivalence_gate"],
          "original_c5":"NOT_QUALIFIED"}
-    (directory/"source_receipt.json").write_text(json.dumps(source_receipt,indent=2,sort_keys=True)+"\\n")
+    (directory/"source_receipt.json").write_text(json.dumps(source_receipt,indent=2,sort_keys=True)+"\n")
     print("SEPARATE_COPY_SOURCE_PASS_BINARY_PARITY_"+observation["binary_byte_equivalence_gate"],
           sha(original),sha(copied))
 
