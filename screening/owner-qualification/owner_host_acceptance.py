@@ -183,6 +183,28 @@ def preflight(artifact, manifest, receipt):
             "original_upstream_unmodified": True}
 
 
+def installed_addon_binding(expected_sha256, explicit=None):
+    """Bounded read-only check of actual installed REA addon; no recursive host sweep."""
+    candidate = explicit
+    if candidate is None and os.environ.get("REA_NATIVE_ADDON"):
+        candidate = Path(os.environ["REA_NATIVE_ADDON"])
+    if candidate is None:
+        try:
+            x = subprocess.run(["npm", "root", "-g"], capture_output=True, text=True,
+                               timeout=6, check=False)
+            if x.returncode == 0 and x.stdout.strip():
+                candidate = Path(x.stdout.strip()) / "rea-agents" / "native" / "windows" / "build" / "rea-windows-x64.node"
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    if candidate is None or not candidate.is_file():
+        return "NOT_LOCATED"
+    try:
+        digest = hashlib.sha256(candidate.read_bytes()).hexdigest()
+        return "MATCH" if digest == expected_sha256 else "MISMATCH"
+    except OSError:
+        return "INACCESSIBLE"
+
+
 def write_json(path, obj):
     path.write_text(json.dumps(obj, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -193,7 +215,8 @@ def main():
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--source-receipt", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
-    parser.add_argument("--host-label", choices=["ci", "msi"], required=True)
+    parser.add_argument("--host-label", choices=["ci", "ci-msi-dryrun", "msi"], required=True)
+    parser.add_argument("--installed-addon", type=Path)
     args = parser.parse_args()
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + uuid.uuid4().hex[:8]
     output_root = args.output_root.resolve()
@@ -220,10 +243,18 @@ def main():
                           "python_version": platform.python_version(),
                           "ambient_job_contract": "NOT_INDEPENDENTLY_QUALIFIED"}
         report["artifact"] = preflight(args.addon, args.manifest, args.source_receipt)
+        if args.host_label == "msi":
+            if os.environ.get("GITHUB_ACTIONS") == "true":
+                raise RuntimeError("MSI_MODE_NOT_ALLOWED_IN_CI")
+            report["installed_addon_binding"] = installed_addon_binding(
+                report["artifact"]["artifact_sha256"], args.installed_addon)
+        elif args.host_label == "ci-msi-dryrun":
+            report["installed_addon_binding"] = "SIMULATED_MATCH_CI_ONLY"
         actor = Path(__file__).with_name("native_owner_actor.mjs")
         if not actor.is_file():
             raise RuntimeError("SYNTHETIC_ACTOR_MISSING")
-        for mode in ("natural", "terminate", "close", "crash", "synthetic_deadline"):
+        modes = ("natural", "terminate", "close", "crash", "synthetic_deadline") if args.host_label == "ci" else ("natural", "crash")
+        for mode in modes:
             try:
                 result = case(mode, args.addon.resolve(), actor.resolve())
                 report["tests"].append(result)
@@ -231,8 +262,15 @@ def main():
                 report["tests"].append({"name": mode, "status": "FAIL",
                                         "reason": type(exc).__name__ + ":" + str(exc)[-260:]})
                 break  # Stop immediately; no automatic retries after unsafe uncertainty.
-        if len(report["tests"]) == 5 and all(t["status"] == "PASS" for t in report["tests"]):
-            report["overall"] = "PASS_SCOPED_HOST_CONFORMANCE_ONLY"
+        if len(report["tests"]) == len(modes) and all(t["status"] == "PASS" for t in report["tests"]):
+            if args.host_label == "ci":
+                report["overall"] = "PASS_SCOPED_CI_NATIVE_ONLY"
+            elif args.host_label == "ci-msi-dryrun":
+                report["overall"] = "PASS_CI_SIMULATED_MSI_TEST_SHAPE_ONLY"
+            elif report["installed_addon_binding"] == "MATCH":
+                report["overall"] = "PASS_SCOPED_MSI_HOST_CONFORMANCE_ONLY"
+            else:
+                report["overall"] = "INDETERMINATE_INSTALLED_REA_ARTIFACT_NOT_BOUND"
         else:
             report["overall"] = "FAIL_OR_INDETERMINATE"
     except BaseException as exc:
@@ -262,7 +300,7 @@ def main():
         (folder / "CODEX_HANDOFF_PENDING_REVIEW.md").write_text("\n".join(notes), encoding="utf-8")
         print(json.dumps({"run_dir": str(folder), "overall": report["overall"],
                           "case_count": len(report["tests"]), "original_c5": "NOT_QUALIFIED"}))
-    return 0 if report["overall"] == "PASS_SCOPED_HOST_CONFORMANCE_ONLY" else 2
+    return 0 if report["overall"].startswith("PASS_") else 2
 
 
 if __name__ == "__main__":
