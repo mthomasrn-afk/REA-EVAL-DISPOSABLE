@@ -51,9 +51,43 @@ def compare(upstream,isolated,out):
     out.parent.mkdir(parents=True,exist_ok=True)
     out.write_text(json.dumps(r,indent=2,sort_keys=True)+"\n")
     print("INDEPENDENT_NATIVE_COPY_BYTE_IDENTICAL",r["native_binary_sha256"])
+def record(upstream, isolated, directory):
+    verify(upstream, isolated)
+    directory.mkdir(parents=True,exist_ok=True)
+    rel=Path("native/windows/build/rea-windows-x64.node")
+    original=(upstream/rel).read_bytes()
+    copied=(isolated/rel).read_bytes()
+    om=json.loads((upstream/"native/windows/build/manifest.json").read_text())
+    im=json.loads((isolated/"native/windows/build/manifest.json").read_text())
+    if om.get("artifactSha256") != sha(original) or im.get("artifactSha256") != sha(copied):
+        raise RuntimeError("INVALID_NATIVE_MANIFEST")
+    if om.get("packageVersion") != im.get("packageVersion") or im.get("packageVersion")!="6.5.0":
+        raise RuntimeError("WRONG_PACKAGE")
+    exact=original==copied
+    observation={"schema":"rea.owner.source-exact-separate-build.v1",
+         "source_commit":PIN,"source_blob_match":"PASS","copied_source_gits":BLOBS,
+         "original_artifact_sha256":sha(original),"copied_artifact_sha256":sha(copied),
+         "binary_byte_equivalence_gate":"PASS" if exact else "FAIL",
+         "binary_equivalence_NOT_assumed":not exact,
+         "artifact_bytes":len(copied),"original_c5":"NOT_QUALIFIED",
+         "component_qualification":"NOT_QUALIFIED",
+         "scope":"EXACT_SOURCE_SEPARATE_BUILD_ONLY"}
+    (directory/"isolation_receipt.json").write_text(json.dumps(observation,indent=2,sort_keys=True)+"\\n")
+    source_receipt={"schema":"rea.copied-original-native-source-receipt.v1",
+         "source_commit":PIN,"source_dirty":False,"artifact_sha256":sha(copied),
+         "original_blob_shas":BLOBS,"original_upstream_copied_byte_exactly":True,
+         "separate_copy_binary_sha256":sha(copied),
+         "original_binary_sha256":sha(original),
+         "binary_byte_equivalence_gate":observation["binary_byte_equivalence_gate"],
+         "original_c5":"NOT_QUALIFIED"}
+    (directory/"source_receipt.json").write_text(json.dumps(source_receipt,indent=2,sort_keys=True)+"\\n")
+    print("SEPARATE_COPY_SOURCE_PASS_BINARY_PARITY_"+observation["binary_byte_equivalence_gate"],
+          sha(original),sha(copied))
+
 if __name__=="__main__":
     if len(sys.argv) not in (4,5):raise SystemExit("usage: isolation_verify.py verify|compare ORIGINAL ISOLATED [RECEIPT]")
     mode=sys.argv[1];u=Path(sys.argv[2]);i=Path(sys.argv[3])
     if mode=="verify" and len(sys.argv)==4: verify(u,i);print("SIX_ORIGINAL_SOURCE_BLOBS_EXACT");sys.exit()
     if mode=="compare" and len(sys.argv)==5:compare(u,i,Path(sys.argv[4]));sys.exit()
+    if mode=="record" and len(sys.argv)==5:record(u,i,Path(sys.argv[4]));sys.exit()
     raise RuntimeError("INVALID_MODE_OR_ARGUMENTS")

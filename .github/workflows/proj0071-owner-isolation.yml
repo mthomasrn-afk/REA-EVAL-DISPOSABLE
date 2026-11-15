@@ -65,15 +65,20 @@ jobs:
           print('PE_SECTION_DIFFS',json.dumps({name:sum(lo<=i<hi for i in diffs)
             for name,lo,hi in sections if any(lo<=i<hi for i in diffs)}))
           PY
-          python -B screening/owner-isolation/isolation_verify.py compare original-upstream screening/owner-isolation/standalone isolated-artifact/isolation_receipt.json
-          python screening/owner-qualification/source_receipt.py original-upstream isolated-artifact/source_receipt.json
+          python -B screening/owner-isolation/isolation_verify.py record original-upstream screening/owner-isolation/standalone isolated-artifact
+          mkdir -p original-artifact
+          python screening/owner-qualification/source_receipt.py original-upstream original-artifact/source_receipt.json
+          cp original-upstream/native/windows/build/rea-windows-x64.node original-artifact/
+          cp original-upstream/native/windows/build/manifest.json original-artifact/
           cp screening/owner-isolation/standalone/native/windows/build/rea-windows-x64.node isolated-artifact/
           cp screening/owner-isolation/standalone/native/windows/build/manifest.json isolated-artifact/
       - name: Upload test-only isolated owner build; NOT a release
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: exact-copied-rea-owner-native-test-only
-          path: isolated-artifact/
+          path: |
+            isolated-artifact/
+            original-artifact/
           retention-days: 2
           if-no-files-found: error
   test-copied-owner-on-windows:
@@ -101,14 +106,46 @@ jobs:
       - name: Validate original identity and isolation receipt fail closed
         shell: pwsh
         run: |
-          python -c "import json,hashlib,pathlib;d=pathlib.Path('isolated-artifact');x=json.loads((d/'isolation_receipt.json').read_text());r=json.loads((d/'source_receipt.json').read_text());a=(d/'rea-windows-x64.node').read_bytes();s=hashlib.sha256(a).hexdigest();assert x['isolated_build_binary_identical'] and x['native_binary_sha256']==r['artifact_sha256']==s;print('ISOLATED_COPY_IDENTITY_PASS',s)"
+          python -c "import json,hashlib,pathlib;d=pathlib.Path('isolated-artifact');x=json.loads((d/'isolation_receipt.json').read_text());r=json.loads((d/'source_receipt.json').read_text());a=(d/'rea-windows-x64.node').read_bytes();s=hashlib.sha256(a).hexdigest();assert x['source_blob_match']=='PASS' and x['copied_artifact_sha256']==r['artifact_sha256']==s;print('COPIED_SOURCE_VERIFIED',s,'BYTE_PARITY',x['binary_byte_equivalence_gate'])"
       - name: Independent kernel-handle lifecycle tests of COPIED addon
         shell: pwsh
         run: |
           python -B screening/owner-qualification/owner_host_acceptance.py --addon isolated-artifact/rea-windows-x64.node --manifest isolated-artifact/manifest.json --source-receipt isolated-artifact/source_receipt.json --output-root "$env:RUNNER_TEMP" --host-label ci
+      - name: Control tests against independently built ORIGINAL native addon
+        shell: pwsh
+        run: |
+          python -B screening/owner-qualification/owner_host_acceptance.py --addon original-artifact/rea-windows-x64.node --manifest original-artifact/manifest.json --source-receipt original-artifact/source_receipt.json --output-root "$env:RUNNER_TEMP" --host-label ci
       - name: Independent unrelated-process negative controls
         shell: pwsh
         run: |
           python -B screening/owner-isolation/foreign_process_test.py isolated-artifact/rea-windows-x64.node
       - name: Never substitute copied-owner CI for original C5
         run: echo "ORIGINAL_REA_C5_NOT_QUALIFIED; NO_MSI_ACCEPTANCE; NO_PMVT_REQUIREMENT"
+
+  preserve-binary-equivalence-gate:
+    needs: [copied-owner-native-build, test-copied-owner-on-windows]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        if: ${{ needs.copied-owner-native-build.result == 'success' }}
+        with:
+          name: exact-copied-rea-owner-native-test-only
+          path: evidence
+      - name: Keep nonidentical binary as FAIL, not component qualification
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json,sys
+          p=Path("evidence/isolated-artifact/isolation_receipt.json")
+          if not p.is_file():
+              print("BLOCKED_BINARY_RECEIPT_UNAVAILABLE");sys.exit(2)
+          d=json.loads(p.read_text())
+          print("SOURCE_BLOB_MATCH",d["source_blob_match"])
+          print("BINARY_EQUIVALENCE_GATE",d["binary_byte_equivalence_gate"])
+          print("ORIGINAL_C5",d["original_c5"])
+          if d["binary_byte_equivalence_gate"]!="PASS":
+              print("NOT_QUALIFIED_SEPARATE_BUILD_BINARY_DIFFERS");sys.exit(1)
+          PY

@@ -14,8 +14,11 @@ LICENSE (copyright 2026 morluto) is included. Only minimal package metadata
 
 CI builds the pinned upstream and this isolated copy independently with the
 **same** toolchain. It requires every copied source to match the exact pinned
-Git blob and the resulting PE native addon to be **byte-identical** in that run.
-A mismatch blocks all native tests; it is never papered over.
+Git blob and byte-identical original and copied source blobs. It **also checks** binary
+byte equivalence but does not silently assume equivalence. Because this
+same-toolchain standalone build yielded a different SHA-256, binary parity
+is retained as **FAIL** while separate-copy functional tests proceed as
+an explicitly unqualified experiment. A separate required gate remains red.
 
 Windows runners then exercise the isolated addon via the existing **external**
 Python kernel process-handle observer, not via REA analysis or providers:
