@@ -40,7 +40,9 @@ def role(name):
         subprocess.Popen(
             [sys.executable, "-B", str(Path(__file__).resolve()), "--role", child],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            cwd=str(work), creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            cwd=str(work), creationflags=(subprocess.DETACHED_PROCESS
+                if os.environ.get("REA_C5_CHILD_LAUNCH") == "DETACHED"
+                else subprocess.CREATE_NO_WINDOW),
             close_fds=True,
         )
     marker = {"role": name, "pid": os.getpid(), "ppid": os.getppid()}
@@ -99,7 +101,7 @@ def wait_markers(work):
         time.sleep(.025)
     raise RuntimeError("SYNTHETIC_ROLE_READINESS_TIMEOUT")
 
-def run(addon, manifest, receipt, output):
+def run(addon, manifest, receipt, output, *, detached_descendants=False):
     result = {
         "schema": "rea.c5.cmd-descendant.synthetic-ci.v1",
         "original_rea": "NOT_QUALIFIED",
@@ -136,9 +138,13 @@ def run(addon, manifest, receipt, output):
         with tempfile.TemporaryDirectory(prefix="REA_C5_CMD_CLEAR_") as d:
             work = Path(d).resolve()
             cmdfile = work / "SYNTHETIC_QHF_LIKE_CASE.cmd"
+            launch_mode = 'set "REA_C5_CHILD_LAUNCH=DETACHED"\r\n' if detached_descendants else ""
             cmdfile.write_text(
-                '@echo off\r\n"%REA_C5_PYTHON%" -B "%REA_C5_ROLE_SCRIPT%" --role parent\r\n'
+                '@echo off\r\n' + launch_mode +
+                '"%REA_C5_PYTHON%" -B "%REA_C5_ROLE_SCRIPT%" --role parent\r\n' +
                 'exit /b %ERRORLEVEL%\r\n', encoding="ascii")
+            result["nested_child_mode"] = ("DETACHED_PROCESS" if detached_descendants
+                                           else "CREATE_NO_WINDOW")
             actor = subprocess.Popen(
                 ["node", str(HERE / "cmd_tree_actor.mjs"), str(addon),
                  str(cmdfile), sys.executable, str(Path(__file__).resolve()), str(work)],
@@ -257,6 +263,10 @@ def run(addon, manifest, receipt, output):
                     "TOOLHELP_PARENT_DESCENDANT_OUTSIDE_OWNER_JOB")
             result["independent_toolhelp_topology"] = topology
             result["observational_original_r5_style_four_exact"] = topology["original_r5_style_exact_four"]
+            if detached_descendants:
+                require(topology["original_r5_style_exact_four"] is True and
+                        topology["original_r5_style_extra_count"] == 0,
+                        "DETACHED_CHILDREN_STRICT_FOUR_DESCENDANT_CLOSURE_FAILED")
             result["bounded_qpc_window"] = [str(before), str(after)]
             result["owner_handles_released_before_close"] = True
             wrong = copy.deepcopy(sample)
@@ -331,6 +341,9 @@ def run(addon, manifest, receipt, output):
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--role":
         raise SystemExit(role(sys.argv[2]))
-    if len(sys.argv) != 5:
-        raise SystemExit("usage: cmd_tree_test.py addon manifest patch_receipt output")
-    raise SystemExit(run(*(Path(x).resolve() for x in sys.argv[1:])))
+    detached = len(sys.argv) == 6 and sys.argv[1] == "--detached-descendants"
+    argv = sys.argv[2:] if detached else sys.argv[1:]
+    if len(argv) != 4:
+        raise SystemExit("usage: cmd_tree_test.py [--detached-descendants] addon manifest patch_receipt output")
+    raise SystemExit(run(*(Path(x).resolve() for x in argv),
+                         detached_descendants=detached))
