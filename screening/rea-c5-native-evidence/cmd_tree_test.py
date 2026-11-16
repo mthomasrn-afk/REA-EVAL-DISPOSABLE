@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import subprocess
+import shutil
 import sys
 import tempfile
 import time
@@ -112,6 +113,7 @@ def run(addon, manifest, receipt, output, *, gui_child_interpreter=False):
         "negative_controls": {},
     }
     actor = foreign = None
+    d = None
     known = []
     all_held = []
     outsider = None
@@ -132,156 +134,156 @@ def run(addon, manifest, receipt, output, *, gui_child_interpreter=False):
         k, nt = exact.apis()
         k.QueryPerformanceCounter.argtypes = (ctypes.POINTER(ctypes.c_longlong),)
         k.QueryPerformanceCounter.restype = wintypes.BOOL
-        with tempfile.TemporaryDirectory(prefix="REA_C5_CMD_CLEAR_") as d:
-            work = Path(d).resolve()
-            cmdfile = work / "SYNTHETIC_QHF_LIKE_CASE.cmd"
-            cmdline = ('start "" /wait "%REA_C5_PYTHON%" -B "%REA_C5_ROLE_SCRIPT%" --role parent'
-                       if gui_child_interpreter else
-                       '"%REA_C5_PYTHON%" -B "%REA_C5_ROLE_SCRIPT%" --role parent')
-            cmdfile.write_text('@echo off\r\n' + cmdline + '\r\nexit /b %ERRORLEVEL%\r\n',
-                               encoding="ascii")
-            interpreter = (str(Path(sys.executable).with_name("pythonw.exe"))
-                           if gui_child_interpreter else sys.executable)
-            if gui_child_interpreter:
-                require(Path(interpreter).is_file(), "GUI_PYTHON_EXECUTABLE_UNAVAILABLE")
-                result["interpreter_variant"] = "pythonw.exe with CMD start /wait"
-            actor = subprocess.Popen(
-                ["node", str(HERE / "cmd_tree_actor.mjs"), str(addon),
-                 str(cmdfile), interpreter, str(Path(__file__).resolve()), str(work)],
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, bufsize=1, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            foreign = subprocess.Popen(
-                [sys.executable, "-c", "import time;time.sleep(40)"],
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            ready = own.marker(actor.stdout, "CMD_OWNER_READY ", 10)
-            root = ready.get("root_pid")
-            require(type(root) is int and root > 0, "CMD_ROOT_PID_UNAVAILABLE")
-            rows = wait_markers(work)
-            declared = [root] + [row["pid"] for row in rows]
-            require(len(set(declared)) == 5, "DECLARED_CMD_TREE_PID_COLLISION")
-            markers = dict(zip(ROLES, rows))
-            require(markers["parent"]["ppid"] == root
-                    and markers["middle"]["ppid"] == markers["parent"]["pid"]
-                    and markers["leaf_a"]["ppid"] == markers["middle"]["pid"]
-                    and markers["leaf_b"]["ppid"] == markers["middle"]["pid"],
-                    "SYNTHETIC_CMD_PROCESS_LINEAGE_NOT_ESTABLISHED")
-            for pid in declared:
-                h, creation, _ = own.acquire(pid)
-                all_held.append((pid, h, creation))
-            outsider, foreign_creation, _ = own.acquire(foreign.pid)
-            require(all(k.WaitForSingleObject(h, 0) == ALIVE for _, h, _ in all_held)
-                    and k.WaitForSingleObject(outsider, 0) == ALIVE,
-                    "CMD_DECLARED_PROCESS_ALREADY_SETTLED")
-            actor.stdin.write("observe\n")
-            actor.stdin.flush()
-            discovery = own.marker(actor.stdout, "CMD_OWNER_SAMPLE ", 9)
-            present = discovery.get("currentJobPids")
-            require(discovery.get("completeAtSample") is True
-                    and discovery.get("pidListComplete") is True
-                    and isinstance(present, list) and len(set(present)) == len(present)
-                    and set(declared).issubset(set(present)) and foreign.pid not in present
-                    and len(present) <= 24, "CMD_JOB_PID_DISCOVERY_UNSAFE_OR_INCOMPLETE")
-            extras = sorted(set(present) - set(declared))
-            if gui_child_interpreter:
-                require(len(extras) == 0, "GUI_CHILD_VARIANT_STILL_HAS_EXTRA_JOB_MEMBERS")
-            for pid in extras:
-                h, creation, _ = own.acquire(pid)
-                all_held.append((pid, h, creation))
-            require(set(x[0] for x in all_held) == set(present)
-                    and all(k.WaitForSingleObject(h, 0) == ALIVE for _, h, _ in all_held),
-                    "CMD_UNKNOWN_DESCENDANT_NOT_INDEPENDENTLY_HELD")
-            actor_handle = k.OpenProcess(exact.P_QUERY | exact.P_DUP, False, actor.pid)
-            require(bool(actor_handle), "CMD_OWNER_HANDLE_UNAVAILABLE")
-            try:
-                attested = exact.witness(k, nt, actor_handle,
-                                         [h for _, h, _ in all_held], outsider)
-            finally:
-                k.CloseHandle(actor_handle)
-            require(attested.get("known_process_memberships") == [True]*len(all_held)
-                    and attested.get("unrelated_process_is_nonmember") is True
-                    and attested.get("duplicate_calls_succeeded") ==
-                        attested.get("duplicate_query_handles_closed"),
-                    "CMD_EXACT_OWNER_JOB_MEMBERSHIP_NOT_INDEPENDENTLY_ESTABLISHED")
-            result["independent_exact_job_witness"] = attested
-            # New strictly observational discriminator for the historical
-            # console-host hypothesis. Query only the already-held Job PIDs;
-            # record basename only, no full path, account, or ambient scan.
-            k.QueryFullProcessImageNameW.argtypes = (
-                wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR,
-                ctypes.POINTER(wintypes.DWORD))
-            k.QueryFullProcessImageNameW.restype = wintypes.BOOL
-            image_basenames = {}
-            for pid, handle, creation in all_held:
-                chars = wintypes.DWORD(512)
-                buffer = ctypes.create_unicode_buffer(512)
-                ok = k.QueryFullProcessImageNameW(
-                    handle, 0, buffer, ctypes.byref(chars))
-                require(bool(ok) and 0 < chars.value < 512,
-                        "HELD_PROCESS_IMAGE_NAME_UNAVAILABLE")
-                basename = Path(buffer.value).name.casefold()
-                require(bool(basename) and basename == Path(basename).name,
-                        "PROCESS_BASENAME_INVALID")
-                image_basenames[pid] = basename
-            result["held_pid_image_basename"] = [
-                {"pid": pid, "basename": image_basenames[pid],
-                 "declared_by_synthetic_fixture": pid in declared}
-                for pid, _, _ in all_held
-            ]
-            result["unexpected_image_basenames"] = sorted(
-                image_basenames[pid] for pid in extras)
-            result["image_evidence_scope"] = (
-                "INDEPENDENT_KERNEL_HANDLE_BASENAME_ONLY_NOT_PARENT_CAUSALITY"
-            )
-            require(all(k.WaitForSingleObject(h, 0) == ALIVE for _, h, _ in all_held),
-                    "CMD_LIVE_BEFORE_SECOND_QUERY_FAILED")
-            before = qpc(k)
-            actor.stdin.write("observe\n")
-            actor.stdin.flush()
-            sample = own.marker(actor.stdout, "CMD_OWNER_SAMPLE ", 9)
-            after = qpc(k)
-            require(all(k.WaitForSingleObject(h, 0) == ALIVE for _, h, _ in all_held),
-                    "CMD_LIVE_AFTER_SECOND_QUERY_FAILED")
-            require(complete_sample(sample, expected=present, foreign=foreign.pid,
-                                    root=root, root_creation=all_held[0][2],
-                                    begin=before, end=after), "CMD_SAME_JOB_SNAPSHOT_INVALID")
-            result["independent_held_identities"] = [
-                {"pid":p,"creation_filetime_100ns":t} for p, _, t in all_held]
-            result["cmd_declared_processes"] = len(declared)
-            result["cmd_unexpected_job_processes"] = len(extras)
-            result["cmd_source_sample_pids"] = sorted(present)
-            result["bounded_qpc_window"] = [str(before), str(after)]
-            result["owner_handles_released_before_close"] = True
-            wrong = copy.deepcopy(sample)
-            wrong["currentJobPids"].append(foreign.pid)
-            wrong["jobReturnedCount"] = len(wrong["currentJobPids"])
-            wrong["jobAssignedCount"] = len(wrong["currentJobPids"])
-            for name, evidence in (
-                ("foreign_contamination", wrong),
-                ("incomplete_class3", dict(sample, completeAtSample=False)),
-                ("policy_missing", dict(sample, policyFlags=0)),
-                ("stale_creation", dict(sample, rootCreationFiletime="0")),
-            ):
-                require(not complete_sample(evidence, expected=present, foreign=foreign.pid,
-                                            root=root, root_creation=all_held[0][2],
-                                            begin=before, end=after),
-                        "CMD_FALSE_PASS_NEGATIVE_" + name)
-                result["negative_controls"][name] = "REJECTED"
-            require(actor.poll() is None, "CMD_OWNER_EXITED_BEFORE_JOB_CLOSE")
-            actor.stdin.write("go\n")
-            actor.stdin.flush()
-            actor.stdin.close()
-            done = own.marker(actor.stdout, "CMD_OWNER_DONE ", 9)
-            require(done.get("owner_closed") is True, "CMD_OWNER_CLOSE_NOT_ACKNOWLEDGED")
-            actor.wait(timeout=9)
-            require(actor.returncode == 0, "CMD_OWNER_ERROR")
-            waits = [int(k.WaitForSingleObject(h, 5000)) for _, h, _ in all_held]
-            require(waits == [DONE]*len(all_held), "CMD_DESCENDANT_RESIDUAL_AFTER_OWNER_CLOSE")
-            require(k.WaitForSingleObject(outsider, 0) == ALIVE,
-                    "CMD_FOREIGN_CONTROL_KILLED")
-            result["held_process_waits_after_close"] = waits
-            result["foreign_control_survived"] = True
-            result["result"] = "PASS_SCOPED_SYNTHETIC_CMD_CONTAINMENT_ONLY"
+        d = tempfile.mkdtemp(prefix="REA_C5_CMD_CLEAR_")
+        work = Path(d).resolve()
+        cmdfile = work / "SYNTHETIC_QHF_LIKE_CASE.cmd"
+        cmdline = ('start "" /wait "%REA_C5_PYTHON%" -B "%REA_C5_ROLE_SCRIPT%" --role parent'
+                   if gui_child_interpreter else
+                   '"%REA_C5_PYTHON%" -B "%REA_C5_ROLE_SCRIPT%" --role parent')
+        cmdfile.write_text('@echo off\r\n' + cmdline + '\r\nexit /b %ERRORLEVEL%\r\n',
+                           encoding="ascii")
+        interpreter = (str(Path(sys.executable).with_name("pythonw.exe"))
+                       if gui_child_interpreter else sys.executable)
+        if gui_child_interpreter:
+            require(Path(interpreter).is_file(), "GUI_PYTHON_EXECUTABLE_UNAVAILABLE")
+            result["interpreter_variant"] = "pythonw.exe with CMD start /wait"
+        actor = subprocess.Popen(
+            ["node", str(HERE / "cmd_tree_actor.mjs"), str(addon),
+             str(cmdfile), interpreter, str(Path(__file__).resolve()), str(work)],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, bufsize=1, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        foreign = subprocess.Popen(
+            [sys.executable, "-c", "import time;time.sleep(40)"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        ready = own.marker(actor.stdout, "CMD_OWNER_READY ", 10)
+        root = ready.get("root_pid")
+        require(type(root) is int and root > 0, "CMD_ROOT_PID_UNAVAILABLE")
+        rows = wait_markers(work)
+        declared = [root] + [row["pid"] for row in rows]
+        require(len(set(declared)) == 5, "DECLARED_CMD_TREE_PID_COLLISION")
+        markers = dict(zip(ROLES, rows))
+        require(markers["parent"]["ppid"] == root
+                and markers["middle"]["ppid"] == markers["parent"]["pid"]
+                and markers["leaf_a"]["ppid"] == markers["middle"]["pid"]
+                and markers["leaf_b"]["ppid"] == markers["middle"]["pid"],
+                "SYNTHETIC_CMD_PROCESS_LINEAGE_NOT_ESTABLISHED")
+        for pid in declared:
+            h, creation, _ = own.acquire(pid)
+            all_held.append((pid, h, creation))
+        outsider, foreign_creation, _ = own.acquire(foreign.pid)
+        require(all(k.WaitForSingleObject(h, 0) == ALIVE for _, h, _ in all_held)
+                and k.WaitForSingleObject(outsider, 0) == ALIVE,
+                "CMD_DECLARED_PROCESS_ALREADY_SETTLED")
+        actor.stdin.write("observe\n")
+        actor.stdin.flush()
+        discovery = own.marker(actor.stdout, "CMD_OWNER_SAMPLE ", 9)
+        present = discovery.get("currentJobPids")
+        require(discovery.get("completeAtSample") is True
+                and discovery.get("pidListComplete") is True
+                and isinstance(present, list) and len(set(present)) == len(present)
+                and set(declared).issubset(set(present)) and foreign.pid not in present
+                and len(present) <= 24, "CMD_JOB_PID_DISCOVERY_UNSAFE_OR_INCOMPLETE")
+        extras = sorted(set(present) - set(declared))
+        if gui_child_interpreter:
+            require(len(extras) == 0, "GUI_CHILD_VARIANT_STILL_HAS_EXTRA_JOB_MEMBERS")
+        for pid in extras:
+            h, creation, _ = own.acquire(pid)
+            all_held.append((pid, h, creation))
+        require(set(x[0] for x in all_held) == set(present)
+                and all(k.WaitForSingleObject(h, 0) == ALIVE for _, h, _ in all_held),
+                "CMD_UNKNOWN_DESCENDANT_NOT_INDEPENDENTLY_HELD")
+        actor_handle = k.OpenProcess(exact.P_QUERY | exact.P_DUP, False, actor.pid)
+        require(bool(actor_handle), "CMD_OWNER_HANDLE_UNAVAILABLE")
+        try:
+            attested = exact.witness(k, nt, actor_handle,
+                                     [h for _, h, _ in all_held], outsider)
+        finally:
+            k.CloseHandle(actor_handle)
+        require(attested.get("known_process_memberships") == [True]*len(all_held)
+                and attested.get("unrelated_process_is_nonmember") is True
+                and attested.get("duplicate_calls_succeeded") ==
+                    attested.get("duplicate_query_handles_closed"),
+                "CMD_EXACT_OWNER_JOB_MEMBERSHIP_NOT_INDEPENDENTLY_ESTABLISHED")
+        result["independent_exact_job_witness"] = attested
+        # New strictly observational discriminator for the historical
+        # console-host hypothesis. Query only the already-held Job PIDs;
+        # record basename only, no full path, account, or ambient scan.
+        k.QueryFullProcessImageNameW.argtypes = (
+            wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR,
+            ctypes.POINTER(wintypes.DWORD))
+        k.QueryFullProcessImageNameW.restype = wintypes.BOOL
+        image_basenames = {}
+        for pid, handle, creation in all_held:
+            chars = wintypes.DWORD(512)
+            buffer = ctypes.create_unicode_buffer(512)
+            ok = k.QueryFullProcessImageNameW(
+                handle, 0, buffer, ctypes.byref(chars))
+            require(bool(ok) and 0 < chars.value < 512,
+                    "HELD_PROCESS_IMAGE_NAME_UNAVAILABLE")
+            basename = Path(buffer.value).name.casefold()
+            require(bool(basename) and basename == Path(basename).name,
+                    "PROCESS_BASENAME_INVALID")
+            image_basenames[pid] = basename
+        result["held_pid_image_basename"] = [
+            {"pid": pid, "basename": image_basenames[pid],
+             "declared_by_synthetic_fixture": pid in declared}
+            for pid, _, _ in all_held
+        ]
+        result["unexpected_image_basenames"] = sorted(
+            image_basenames[pid] for pid in extras)
+        result["image_evidence_scope"] = (
+            "INDEPENDENT_KERNEL_HANDLE_BASENAME_ONLY_NOT_PARENT_CAUSALITY"
+        )
+        require(all(k.WaitForSingleObject(h, 0) == ALIVE for _, h, _ in all_held),
+                "CMD_LIVE_BEFORE_SECOND_QUERY_FAILED")
+        before = qpc(k)
+        actor.stdin.write("observe\n")
+        actor.stdin.flush()
+        sample = own.marker(actor.stdout, "CMD_OWNER_SAMPLE ", 9)
+        after = qpc(k)
+        require(all(k.WaitForSingleObject(h, 0) == ALIVE for _, h, _ in all_held),
+                "CMD_LIVE_AFTER_SECOND_QUERY_FAILED")
+        require(complete_sample(sample, expected=present, foreign=foreign.pid,
+                                root=root, root_creation=all_held[0][2],
+                                begin=before, end=after), "CMD_SAME_JOB_SNAPSHOT_INVALID")
+        result["independent_held_identities"] = [
+            {"pid":p,"creation_filetime_100ns":t} for p, _, t in all_held]
+        result["cmd_declared_processes"] = len(declared)
+        result["cmd_unexpected_job_processes"] = len(extras)
+        result["cmd_source_sample_pids"] = sorted(present)
+        result["bounded_qpc_window"] = [str(before), str(after)]
+        result["owner_handles_released_before_close"] = True
+        wrong = copy.deepcopy(sample)
+        wrong["currentJobPids"].append(foreign.pid)
+        wrong["jobReturnedCount"] = len(wrong["currentJobPids"])
+        wrong["jobAssignedCount"] = len(wrong["currentJobPids"])
+        for name, evidence in (
+            ("foreign_contamination", wrong),
+            ("incomplete_class3", dict(sample, completeAtSample=False)),
+            ("policy_missing", dict(sample, policyFlags=0)),
+            ("stale_creation", dict(sample, rootCreationFiletime="0")),
+        ):
+            require(not complete_sample(evidence, expected=present, foreign=foreign.pid,
+                                        root=root, root_creation=all_held[0][2],
+                                        begin=before, end=after),
+                    "CMD_FALSE_PASS_NEGATIVE_" + name)
+            result["negative_controls"][name] = "REJECTED"
+        require(actor.poll() is None, "CMD_OWNER_EXITED_BEFORE_JOB_CLOSE")
+        actor.stdin.write("go\n")
+        actor.stdin.flush()
+        actor.stdin.close()
+        done = own.marker(actor.stdout, "CMD_OWNER_DONE ", 9)
+        require(done.get("owner_closed") is True, "CMD_OWNER_CLOSE_NOT_ACKNOWLEDGED")
+        actor.wait(timeout=9)
+        require(actor.returncode == 0, "CMD_OWNER_ERROR")
+        waits = [int(k.WaitForSingleObject(h, 5000)) for _, h, _ in all_held]
+        require(waits == [DONE]*len(all_held), "CMD_DESCENDANT_RESIDUAL_AFTER_OWNER_CLOSE")
+        require(k.WaitForSingleObject(outsider, 0) == ALIVE,
+                "CMD_FOREIGN_CONTROL_KILLED")
+        result["held_process_waits_after_close"] = waits
+        result["foreign_control_survived"] = True
+        result["result"] = "PASS_SCOPED_SYNTHETIC_CMD_CONTAINMENT_ONLY"
     except Exception as exc:
         result["result"] = "FAIL_OR_INDETERMINATE"
         result["reason"] = type(exc).__name__ + ":" + str(exc)[:230]
@@ -313,6 +315,22 @@ def run(addon, manifest, receipt, output, *, gui_child_interpreter=False):
                         stream.close()
                 except (OSError, ValueError):
                     pass
+        # Remove only the exact scratch created by this case, and only AFTER
+        # emergency owner/child cleanup and independent PROCESS-handle closure.
+        # Windows rejects deleting an in-use working directory; never mask the
+        # real native failure with this secondary cleanup attempt.
+        if d is not None:
+            try:
+                owned_dir = Path(d).resolve()
+                safe_parent = Path(tempfile.gettempdir()).resolve()
+                if (owned_dir.parent != safe_parent or
+                        not owned_dir.name.startswith("REA_C5_CMD_CLEAR_")):
+                    raise RuntimeError("OWNED_SYNTHETIC_SCRATCH_SCOPE_INVALID")
+                shutil.rmtree(owned_dir)
+            except Exception as cleanup_error:
+                result["owned_scratch_cleanup_error"] = (
+                    type(cleanup_error).__name__ + ":" + str(cleanup_error)[:180])
+                result["result"] = "FAIL_OR_INDETERMINATE"
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(result, indent=2, sort_keys=True)+"\n", encoding="utf-8")
         print("REA_C5_CMD", json.dumps({
