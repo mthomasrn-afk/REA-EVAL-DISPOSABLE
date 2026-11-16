@@ -98,7 +98,7 @@ def wait_markers(work):
         time.sleep(.025)
     raise RuntimeError("SYNTHETIC_ROLE_READINESS_TIMEOUT")
 
-def run(addon, manifest, receipt, output):
+def run(addon, manifest, receipt, output, *, gui_child_interpreter=False):
     result = {
         "schema": "rea.c5.cmd-descendant.synthetic-ci.v1",
         "original_rea": "NOT_QUALIFIED",
@@ -135,12 +135,19 @@ def run(addon, manifest, receipt, output):
         with tempfile.TemporaryDirectory(prefix="REA_C5_CMD_CLEAR_") as d:
             work = Path(d).resolve()
             cmdfile = work / "SYNTHETIC_QHF_LIKE_CASE.cmd"
-            cmdfile.write_text(
-                '@echo off\r\n"%REA_C5_PYTHON%" -B "%REA_C5_ROLE_SCRIPT%" --role parent\r\n'
-                'exit /b %ERRORLEVEL%\r\n', encoding="ascii")
+            cmdline = ('start "" /wait "%REA_C5_PYTHON%" -B "%REA_C5_ROLE_SCRIPT%" --role parent'
+                       if gui_child_interpreter else
+                       '"%REA_C5_PYTHON%" -B "%REA_C5_ROLE_SCRIPT%" --role parent')
+            cmdfile.write_text('@echo off\r\n' + cmdline + '\r\nexit /b %ERRORLEVEL%\r\n',
+                               encoding="ascii")
+            interpreter = (str(Path(sys.executable).with_name("pythonw.exe"))
+                           if gui_child_interpreter else sys.executable)
+            if gui_child_interpreter:
+                require(Path(interpreter).is_file(), "GUI_PYTHON_EXECUTABLE_UNAVAILABLE")
+                result["interpreter_variant"] = "pythonw.exe with CMD start /wait"
             actor = subprocess.Popen(
                 ["node", str(HERE / "cmd_tree_actor.mjs"), str(addon),
-                 str(cmdfile), sys.executable, str(Path(__file__).resolve()), str(work)],
+                 str(cmdfile), interpreter, str(Path(__file__).resolve()), str(work)],
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 text=True, bufsize=1, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             foreign = subprocess.Popen(
@@ -176,6 +183,8 @@ def run(addon, manifest, receipt, output):
                     and set(declared).issubset(set(present)) and foreign.pid not in present
                     and len(present) <= 24, "CMD_JOB_PID_DISCOVERY_UNSAFE_OR_INCOMPLETE")
             extras = sorted(set(present) - set(declared))
+            if gui_child_interpreter:
+                require(len(extras) == 0, "GUI_CHILD_VARIANT_STILL_HAS_EXTRA_JOB_MEMBERS")
             for pid in extras:
                 h, creation, _ = own.acquire(pid)
                 all_held.append((pid, h, creation))
@@ -315,6 +324,8 @@ def run(addon, manifest, receipt, output):
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--role":
         raise SystemExit(role(sys.argv[2]))
-    if len(sys.argv) != 5:
-        raise SystemExit("usage: cmd_tree_test.py addon manifest patch_receipt output")
-    raise SystemExit(run(*(Path(x).resolve() for x in sys.argv[1:])))
+    gui = len(sys.argv) == 6 and sys.argv[1] == "--gui-child"
+    args = sys.argv[2:] if gui else sys.argv[1:]
+    if len(args) != 4:
+        raise SystemExit("usage: cmd_tree_test.py [--gui-child] addon manifest patch_receipt output")
+    raise SystemExit(run(*(Path(x).resolve() for x in args), gui_child_interpreter=gui))
