@@ -55,10 +55,10 @@ def toolhelp_rows(kernel):
         if not kernel.CloseHandle(snap):
             raise RuntimeError("TOOLHELP_SNAPSHOT_CLOSE_FAILED")
 
-def closure(rows, parent_pid, declared, job_pids):
+def closure(rows, parent_pid, declared, job_pids, cmd_root_pid):
     if not isinstance(rows,dict) or parent_pid not in rows:
         raise RuntimeError("ROOT_MISSING_FROM_TOOLHELP")
-    if not all(type(pid)==int and pid>0 for pid in declared+job_pids):
+    if not all(type(pid)==int and pid>0 for pid in declared+job_pids+[cmd_root_pid]):
         raise RuntimeError("INVALID_SCOPE_IDENTITIES")
     children={}
     for pid,row in rows.items():
@@ -85,7 +85,9 @@ def closure(rows, parent_pid, declared, job_pids):
         "original_r5_style_extra_count":len(extras),
         "original_r5_style_extra_pids":sorted(extras),
         "original_r5_style_exact_four":found==set(declared),
-        "extra_job_pids_outside_parent_closure":sorted(set(job_pids)-set(declared)-found),
+        "extra_job_pids_outside_parent_closure":sorted(set(job_pids)-set(declared)-found-{cmd_root_pid}),
+        "extra_job_pids_inside_parent_closure":sorted(extras & set(job_pids)),
+        "cmd_root_pid":cmd_root_pid,
         "unexpected_parent_descendants_not_in_owner_job":sorted(extras-set(job_pids)),
         "synthetic_job_pid_count":len(job_pids),
         "nodes":[rows[pid] for pid in sorted(found)],
