@@ -20,6 +20,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "owner-qualification"))
 import owner_host_acceptance as own
 import exact_job_witness as exact
+import independent_toolhelp as scoped_toolhelp
 
 ALIVE = 258
 DONE = 0
@@ -241,6 +242,21 @@ def run(addon, manifest, receipt, output):
             result["cmd_declared_processes"] = len(declared)
             result["cmd_unexpected_job_processes"] = len(extras)
             result["cmd_source_sample_pids"] = sorted(present)
+            # Compare the original R5-style Toolhelp four-role descendant closure
+            # with the separate REA Job membership set; never conflate them.
+            require(all(k.WaitForSingleObject(h, 0) == ALIVE for _, h, _ in all_held),
+                    "TOOLHELP_BEFORE_LIVE_HANDLES_INCOMPLETE")
+            observed_rows = scoped_toolhelp.toolhelp_rows(k)
+            topology = scoped_toolhelp.closure(
+                observed_rows, markers["parent"]["pid"],
+                [markers[role]["pid"] for role in ROLES],
+                list(present), root)
+            require(all(k.WaitForSingleObject(h, 0) == ALIVE for _, h, _ in all_held),
+                    "TOOLHELP_AFTER_LIVE_HANDLES_INCOMPLETE")
+            require(not topology["unexpected_parent_descendants_not_in_owner_job"],
+                    "TOOLHELP_PARENT_DESCENDANT_OUTSIDE_OWNER_JOB")
+            result["independent_toolhelp_topology"] = topology
+            result["observational_original_r5_style_four_exact"] = topology["original_r5_style_exact_four"]
             result["bounded_qpc_window"] = [str(before), str(after)]
             result["owner_handles_released_before_close"] = True
             wrong = copy.deepcopy(sample)
