@@ -10,7 +10,7 @@ const out=process.argv[2];
 if(!out)throw Error("OUTPUT_REQUIRED");
 const root=path.resolve("node_modules/concurrently");
 const tool=path.resolve("node_modules/rea-agents/scripts/rea.mjs");
-const files=["package.json","dist/bin/index.js","dist/lib/index.js"];
+const files=["package.json","dist/bin/index.js","dist/lib/index.js","dist/lib/spawn.js","dist/lib/concurrently.js","dist/lib/flow-control/kill-others.js"];
 const digest=x=>crypto.createHash("sha256").update(x).digest("hex");
 const result={schema:"rea.real-concurrently.mcp.v1",target:"concurrently@10.0.7",
   target_upstream_commit:"f7812ab449f2886be4b7089a10c8e5f1feda2c0b",
@@ -30,8 +30,10 @@ try{
   result.real_source_hashes=before;
   const bin=fs.readFileSync(path.join(root,"dist/bin/index.js"),"utf8");
   const lib=fs.readFileSync(path.join(root,"dist/lib/index.js"),"utf8");
-  check("real_source_content",bin.length>200&&lib.length>100,
-      "Original Concurrently npm release, not constructed source");
+  const spawn=fs.readFileSync(path.join(root,"dist/lib/spawn.js"),"utf8");
+  check("real_source_content",bin.length>200&&lib.length>100&&spawn.length>200&&
+    spawn.includes("node:child_process")&&spawn.includes("spawn"),
+    "Original Concurrently spawn implementation imports Node child_process");
   profile=fs.mkdtempSync(path.join(os.tmpdir(),"rea-real-mcp-"));
   const env={PATH:process.env.PATH??"",SystemRoot:process.env.SystemRoot??"",
     WINDIR:process.env.WINDIR??"",ComSpec:process.env.ComSpec??"",
@@ -92,16 +94,72 @@ try{
     paged?.isError!==true&&page?.kind==="page"&&
     Array.isArray(page.items)&&page.items.length>0,
     "REA must report authentic retained real source module identities");
-  const paths=page.items.map(item=>(item.path??"").replaceAll("\\","/"));
+  const allModules=[...page.items];
+  let offset=page.coverage?.next_offset;
+  let pageCount=1;
+  while(typeof offset==="number"&&pageCount<8){
+    const next=await client.callTool({
+      name:"inspect_analysis_view",
+      arguments:{source:{kind:"retained-evidence",evidence_id:parentId},
+        view:{kind:"page",collection:"modules",offset,limit:32}}
+    },{timeout:30000});
+    const view=next?.structuredContent?.normalized_result;
+    check("module_page_"+String(pageCount+1),next?.isError!==true&&
+      view?.kind==="page"&&Array.isArray(view.items)&&view.items.length>0,
+      "Retained source continuation not reanalysis");
+    allModules.push(...view.items);
+    pageCount++;
+    offset=view.coverage?.next_offset;
+    if(view.coverage?.exhausted===true)break;
+  }
+  result.module_page.full_rea_module_count=allModules.length;
+  result.module_page.pages_read=pageCount;
+  const paths=allModules.map(item=>({
+    path:(item.path??"").replaceAll("\\","/"),kind:item.kind,
+    node_id:item.node_id
+  }));
   const present=files.slice(1).map(f=>
-    paths.some(p=>p===f||p.endsWith("/"+f)));
+    paths.some(p=>(p.path===f||p.path.endsWith("/"+f))&&p.kind==="javascript-module"));
   result.real_module_path_oracle={
     independently_existing_source_paths:files.slice(1),
     source_paths_reported_by_rea:present,
-    total_rea_modules_on_first_page:page.items.length
+    total_rea_modules_on_first_page:page.items.length,
+    total_modules_paged:allModules.length
   };
   check("real_source_module_identity_oracle",present.every(Boolean),
     "Both installed real source files must appear in REA module page");
+  const stats=projection?.summary?.statistics;
+  const selection=projection?.summary?.source_selection;
+  check("real_spawn_source_selection_applied",
+    stats?.parsed_javascript_files>=5 &&
+    files.every(f=>selection?.requested_paths?.includes(f)) &&
+    selection?.unselected_files>0,
+    "Five real JS source files parsed; preserve unselected unknowns as partial");
+  const spawnNodes=paths.filter(x=>x.kind==="javascript-module" &&
+    (x.path==="dist/lib/spawn.js"||x.path.endsWith("/dist/lib/spawn.js")));
+  check("spawn_module_retained",spawnNodes.length>0,
+    "REA did not merely inventory the Node child_process source");
+  const detailCall=await client.callTool({
+    name:"inspect_analysis_view",
+    arguments:{source:{kind:"retained-evidence",evidence_id:parentId},
+      view:{kind:"item",collection:"modules",
+            selector:{node_id:spawnNodes[0].node_id}}}
+  },{timeout:30000});
+  const detail=detailCall?.structuredContent?.normalized_result;
+  result.real_spawn_module={
+    kind:detail?.kind??null,
+    path:detail?.item?.path??null,
+    exports:detail?.item?.exports??[],
+    observation_count:Array.isArray(detail?.item?.observations)?
+      detail.item.observations.length:0,
+    source_range_count:Array.isArray(detail?.item?.source_ranges)?
+      detail.item.source_ranges.length:0
+  };
+  check("real_spawn_module_detail_retrieved",
+    detailCall?.isError!==true&&detail?.kind==="item"&&
+    detail?.item?.node_id===spawnNodes[0].node_id&&
+    detail?.item?.path==="dist/lib/spawn.js",
+    "Original REA source item identity and independent source path match");
   result.real_analysis_summary=projection?.summary??null;
   result.real_analysis=true;
   const missing=await client.callTool({name:"analyze_javascript_application",
