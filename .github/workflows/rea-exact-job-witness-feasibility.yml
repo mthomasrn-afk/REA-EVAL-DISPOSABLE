@@ -1,0 +1,87 @@
+name: REA original owner exact Job witness feasibility NOT QUALIFICATION
+on:
+  push:
+    branches:
+      - experiment/rea-original-exact-job-witness-20261115
+    paths:
+      - screening/owner-qualification/exact_job_witness.py
+      - .github/workflows/rea-exact-job-witness-feasibility.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: rea-original-exact-job-feasibility-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build-unchanged-original-owner:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.19.0'
+      - name: Acquire exact original upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --quiet --depth 1 --branch rea-agents-6.5.0 https://github.com/morluto/rea.git original-upstream
+          test "$(git -C original-upstream rev-parse HEAD)" = '3b79af28e80785afce9f5998d8f03289402a1847'
+          test -z "$(git -C original-upstream status --porcelain)"
+      - name: Compile and attest original native owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get -qq update
+          sudo apt-get -qq install -y --no-install-recommends g++-mingw-w64-x86-64
+          node original-upstream/scripts/build-windows-native.mjs
+          mkdir -p original-artifact
+          python -B screening/owner-qualification/source_receipt.py original-upstream original-artifact/source_receipt.json
+          cp original-upstream/native/windows/build/rea-windows-x64.node original-artifact/
+          cp original-upstream/native/windows/build/manifest.json original-artifact/
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: exact-original-rea-owner-CI-only
+          path: original-artifact/
+          retention-days: 2
+          if-no-files-found: error
+  source-bound-exact-job-witness:
+    needs: build-unchanged-original-owner
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.19.0'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: exact-original-rea-owner-CI-only
+          path: original-artifact
+      - name: Original source identity and digest must match
+        shell: pwsh
+        run: |
+          python -c "import json,hashlib,pathlib;p=pathlib.Path('original-artifact');x=json.loads((p/'source_receipt.json').read_text());m=json.loads((p/'manifest.json').read_text());assert x['source_commit']=='3b79af28e80785afce9f5998d8f03289402a1847';assert x['artifact_sha256']==m['artifactSha256']==hashlib.sha256((p/'rea-windows-x64.node').read_bytes()).hexdigest();print('ORIGINAL_UNCHANGED_VERIFIED')"
+      - name: One scoped owner-handle witness with foreign negative control
+        shell: pwsh
+        run: |
+          python -B screening/owner-qualification/exact_job_witness.py original-artifact/rea-windows-x64.node "${{ runner.temp }}/EXACT_JOB_WITNESS.json"
+      - name: Preserve any negative or positive witness receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rea-original-job-witness-${{ matrix.os }}-NOT-C5
+          path: ${{ runner.temp }}/EXACT_JOB_WITNESS.json
+          retention-days: 2
+          if-no-files-found: warn
