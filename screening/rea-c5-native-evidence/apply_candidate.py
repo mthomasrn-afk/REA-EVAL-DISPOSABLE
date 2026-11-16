@@ -124,7 +124,7 @@ def apply(root,dest):
     # Only two native files changed; all existing original operation bodies preserved.
     pp.write_text(new,encoding="utf8",newline="\n")
     ap.write_text(authority,encoding="utf8",newline="\n")
-    changed=git(root,"status","--porcelain").splitlines()
+    changed=subprocess.check_output(["git","-C",str(root),"status","--porcelain"],text=True).splitlines()
     actual=sorted(l[3:] for l in changed)
     if actual!=sorted(files):
         raise RuntimeError("UNEXPECTED_MODIFICATIONS_"+str(actual))
