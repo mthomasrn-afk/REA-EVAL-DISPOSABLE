@@ -24,6 +24,36 @@ class HEntry(ctypes.Structure):
               ("type_index",wintypes.DWORD),("attributes",wintypes.DWORD),
               ("reserved",wintypes.DWORD)]
 
+class JobAccounting(ctypes.Structure):
+    _fields_ = [(name, ctypes.c_longlong) for name in
+                ("TotalUserTime","TotalKernelTime","ThisPeriodTotalUserTime","ThisPeriodTotalKernelTime")] + [
+                (name, wintypes.DWORD) for name in
+                ("TotalPageFaultCount","TotalProcesses","ActiveProcesses","TotalTerminatedProcesses")]
+
+class JobBasicLimits(ctypes.Structure):
+    _fields_ = [("PerProcessUserTimeLimit", ctypes.c_longlong),
+                ("PerJobUserTimeLimit", ctypes.c_longlong),
+                ("LimitFlags", wintypes.DWORD),
+                ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t),
+                ("ActiveProcessLimit", wintypes.DWORD),
+                ("Affinity", ctypes.c_size_t),
+                ("PriorityClass", wintypes.DWORD),
+                ("SchedulingClass", wintypes.DWORD)]
+
+class JobIoCounters(ctypes.Structure):
+    _fields_ = [(name, ctypes.c_ulonglong) for name in
+                ("ReadOperationCount","WriteOperationCount","OtherOperationCount",
+                 "ReadTransferCount","WriteTransferCount","OtherTransferCount")]
+
+class JobExtendedLimits(ctypes.Structure):
+    _fields_ = [("BasicLimitInformation", JobBasicLimits),
+                ("IoInfo", JobIoCounters),
+                ("ProcessMemoryLimit", ctypes.c_size_t),
+                ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
 def apis():
     own.init_windows()
     k=own.K
@@ -69,6 +99,8 @@ def witness(k,nt,actor,processes,foreign):
     source=actor_handles(nt,actor) # Only the synthetic actor, never systemwide.
     jobs=[]
     duplicates_closed=0
+    dup_success=0
+    account_query_errors=[]
     for value,rights in source:
         if not rights&J_QUERY:
             continue
@@ -76,24 +108,29 @@ def witness(k,nt,actor,processes,foreign):
         if not k.DuplicateHandle(actor,wintypes.HANDLE(value),k.GetCurrentProcess(),
                                  ctypes.byref(dup),J_QUERY,False,0):
             continue
+        dup_success+=1
         try:
-            accounting=ctypes.create_string_buffer(128)
-            if not k.QueryInformationJobObject(dup,1,accounting,128,None):
+            accounting=JobAccounting()
+            if not k.QueryInformationJobObject(dup,1,ctypes.byref(accounting),
+                                               ctypes.sizeof(accounting),None):
+                account_query_errors.append(ctypes.get_last_error())
                 continue
-            policy=ctypes.create_string_buffer(256)
-            if not k.QueryInformationJobObject(dup,9,policy,256,None):
-                raise RuntimeError("JOB_POLICY_QUERY_DENIED")
+            policy=JobExtendedLimits()
+            if not k.QueryInformationJobObject(dup,9,ctypes.byref(policy),
+                                               ctypes.sizeof(policy),None):
+                raise RuntimeError("EXACT_JOB_POLICY_QUERY_DENIED_"+str(ctypes.get_last_error()))
             jobs.append({"source_handle":value,
                          "members":[member(k,p,dup) for p in processes],
                          "foreign_member":member(k,foreign,dup),
-                         "limit_flags":int.from_bytes(policy.raw[16:20],"little")})
+                         "limit_flags":int(policy.BasicLimitInformation.LimitFlags),
+                         "active_processes":int(accounting.ActiveProcesses)})
         finally:
             if not k.CloseHandle(dup):
                 raise RuntimeError("DUPLICATE_JOB_HANDLE_CLOSE_FAILED")
             duplicates_closed+=1
     matches=[x for x in jobs if x["members"][0]]
     if len(matches)!=1:
-        raise RuntimeError("OWNER_JOB_AMBIGUITY_"+str(len(matches)))
+        raise RuntimeError("OWNER_JOB_AMBIGUITY_"+str(len(matches))+"_SNAPSHOT_"+str(len(source))+"_DUP_"+str(dup_success)+"_JOB_"+str(len(jobs))+"_QUERY_ERRORS_"+str(account_query_errors[:5]))
     selected=matches[0]
     if selected["members"] != [True,True,True] or selected["foreign_member"]:
         raise RuntimeError("MEMBERSHIP_POSITIVE_OR_NEGATIVE_FAILED")
@@ -102,6 +139,9 @@ def witness(k,nt,actor,processes,foreign):
     return {"status":"PASS_SCOPED_SYNTHETIC_ONLY",
             "source_actor_handles":len(source),
             "owner_held_jobs":len(jobs),"duplicate_query_handles_closed":duplicates_closed,
+            "duplicate_calls_succeeded":dup_success,
+            "accounting_structure_bytes":ctypes.sizeof(JobAccounting),
+            "limits_structure_bytes":ctypes.sizeof(JobExtendedLimits),
             "unique_owner_job_source_handle":selected["source_handle"],
             "known_process_memberships":selected["members"],
             "unrelated_process_is_nonmember":True,
