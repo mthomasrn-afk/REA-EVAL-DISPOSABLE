@@ -60,6 +60,11 @@ try {
   assert.equal((await commands.next()).value, 'observe');
   const evidence = native.call('process_evidence', [launched.handle]);
   console.log('OWNER_EVIDENCE ' + JSON.stringify(evidence));
+  // The independent witness opens stable handles for every reported extra PID.
+  // A second snapshot is bounded by live-before/live-after independent probes.
+  assert.equal((await commands.next()).value, 'observe');
+  const evidence2 = native.call('process_evidence', [launched.handle]);
+  console.log('OWNER_EVIDENCE ' + JSON.stringify(evidence2));
   assert.equal((await commands.next()).value, 'go');
   reader.close();
   if (mode === 'crash') throw new Error('HARNESS_MUST_KILL_ITS_SYNTHETIC_OWNER');

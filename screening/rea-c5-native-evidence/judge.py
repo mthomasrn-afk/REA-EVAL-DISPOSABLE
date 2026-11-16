@@ -3,7 +3,7 @@
 The owner reports Job membership, but that is NOT independent C5 proof.
 Missing, contradictory or unobserved extras do not produce PASS.
 """
-def adjudicate(e, *, known_pids, root_creation, outsider_pid, start_qpc, end_qpc):
+def adjudicate(e, *, known_pids, root_creation, outsider_pid, start_qpc, end_qpc, witnessed_extra_pids=None):
     def state(code, reason):
         return {"disposition":code,"reason":reason,"original_ac15":"PARTIAL",
                 "original_ac17":"INDETERMINATE","rea_qualified":False}
@@ -60,6 +60,17 @@ def adjudicate(e, *, known_pids, root_creation, outsider_pid, start_qpc, end_qpc
         return state("FAIL","KNOWN_LIVE_MEMBER_MISSING")
     extra=sorted(set(pids)-required)
     if extra:
+        # This may verify the *current reported identities* when the external
+        # witness holds every unexpected process across the exact query. It
+        # never approves the original four-role contract or proves ancestry.
+        if witnessed_extra_pids is not None and set(witnessed_extra_pids)==set(extra):
+            result=state("PASS_SCOPED_REPORTED_IDENTITIES_WITH_EXTRAS",
+                         "ALL_REPORTED_IDS_INDEPENDENTLY_HELD_WHILE_ALIVE")
+            result["observed_extra_pids"]=extra
+            result["original_topology"]="INDETERMINATE_UNEXPECTED_EXTRAS"
+            result["complete_unknown_descendants_proven"]=False
+            result["independent_exact_job_membership_proven"]=False
+            return result
         result=state("INDETERMINATE","UNATTESTED_EXTRA_PROCESS_IDS")
         result["unresolved_extra_pids"]=extra
         return result

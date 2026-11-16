@@ -42,15 +42,40 @@ def candidate_case(addon,mode):
         foreignHandle,foreignCreation,_=owner.acquire(foreign.pid)
         handles.append(foreignHandle)
         if [K.WaitForSingleObject(h,0) for h in handles]!=[258,258,258,258]:
-            raise RuntimeError("INDEPENDENT_BEFORE_ALIVE_PROBE_FAILED")
+            raise RuntimeError("INDEPENDENT_BEFORE_DISCOVERY_FAILED")
+        proc.stdin.write("observe\n");proc.stdin.flush()
+        discovery=owner.marker(proc.stdout,"OWNER_EVIDENCE ",9)
+        if discovery.get("completeAtSample") is not True:
+            raise RuntimeError("INCOMPLETE_DISCOVERY_LIST")
+        discovered=discovery.get("currentJobPids")
+        if not isinstance(discovered,list) or len(discovered)>64 or len(set(discovered))!=len(discovered):
+            raise RuntimeError("DISCOVERY_PID_LIST_INVALID")
+        if not set(pids).issubset(set(discovered)) or foreign.pid in discovered:
+            raise RuntimeError("DISCOVERY_KNOWN_OR_FOREIGN_IDENTITY_ERROR")
+        extras=sorted(set(discovered)-set(pids))
+        evidence["discovery_extra_count"]=len(extras)
+        evidence["discovery_source_attributed_extras"]=extras
+        # The native owner is paused and retains sole Job handle ownership.
+        # Hold independent PROCESS handles for all currently reported extras.
+        for pid in extras:
+            h,creation,_=owner.acquire(pid)
+            handles.append(h)
+            evidence["held_identities"].append({"pid":pid,"creation_filetime":creation,
+                                               "role":"UNDECLARED_EXTRA_NOT_ALLOWLISTED"})
+        if any(K.WaitForSingleObject(h,0)!=258 for h in handles):
+            raise RuntimeError("INDEPENDENT_BEFORE_SECOND_QUERY_ALIVE_FAILED")
         boundBefore=qpc()
         proc.stdin.write("observe\n");proc.stdin.flush()
         sample=owner.marker(proc.stdout,"OWNER_EVIDENCE ",9)
         boundAfter=qpc()
-        if [K.WaitForSingleObject(h,0) for h in handles]!=[258,258,258,258]:
-            raise RuntimeError("INDEPENDENT_AFTER_ALIVE_PROBE_FAILED")
+        if any(K.WaitForSingleObject(h,0)!=258 for h in handles):
+            raise RuntimeError("INDEPENDENT_AFTER_SECOND_QUERY_ALIVE_FAILED")
+        if set(sample.get("currentJobPids",[]))!=set(discovered):
+            raise RuntimeError("LIVE_SNAPSHOT_CHANGED_DURING_IDENTITY_HOLD")
         decision=adjudicate(sample,known_pids=pids,root_creation=creations[0],
-                            outsider_pid=foreign.pid,start_qpc=boundBefore,end_qpc=boundAfter)
+                            outsider_pid=foreign.pid,start_qpc=boundBefore,end_qpc=boundAfter,
+                            witnessed_extra_pids=extras)
+        evidence["discovery_owner_sample"]=discovery
         evidence["owner_sample"]=sample
         evidence["independent_judgment"]=decision
         evidence["independent_qpc_bracket"]=[str(boundBefore),str(boundAfter)]
@@ -65,14 +90,19 @@ def candidate_case(addon,mode):
         proc.wait(timeout=9)
         if (mode=="crash" and proc.returncode==0) or (mode!="crash" and proc.returncode!=0):
             raise RuntimeError("OWNER_EXIT_UNEXPECTED")
-        waits=[K.WaitForSingleObject(h,5000) for h in handles[:3]]
+        # Check EVERY independently held owner-reported process, including
+        # undeclared extras. The single foreign process must remain alive.
+        owned_handles=handles[:3]+handles[4:]
+        waits=[K.WaitForSingleObject(h,5000) for h in owned_handles]
         foreignAlive=K.WaitForSingleObject(foreignHandle,0)==258
         evidence["held_process_waits_after_owner_close"]=waits
         evidence["foreign_survived"]=foreignAlive
-        if waits!=[0,0,0] or not foreignAlive:
+        if waits!=[0]*len(owned_handles) or not foreignAlive:
             raise RuntimeError("KNOWN_JOB_SETTLEMENT_OR_FOREIGN_PRESERVATION_FAILED")
-        if decision["disposition"]=="PASS_SCOPED_KNOWN_IDENTITIES":
-            evidence["status"]="PASS_SCOPED_KNOWN_PROCESSES_ONLY"
+        if decision["disposition"] in ("PASS_SCOPED_KNOWN_IDENTITIES","PASS_SCOPED_REPORTED_IDENTITIES_WITH_EXTRAS"):
+            evidence["status"]="PASS_SCOPED_REPORTED_PROCESS_IDENTITIES_ONLY"
+            evidence["original_topology"]="INDETERMINATE_IF_UNDECLARED_EXTRAS"
+            evidence["independent_job_membership"]="OWNER_ATTRIBUTED_NOT_INDEPENDENT"
         elif decision["disposition"]=="INDETERMINATE":
             evidence["status"]="INDETERMINATE_OBSERVATION_INCOMPLETE"
         else:
@@ -133,7 +163,7 @@ def main():
             case=candidate_case(a.addon.resolve(),mode)
             print("CANDIDATE_CASE_DETAIL",json.dumps({"mode":mode,"status":case["status"],"reason":case.get("reason"),"judgment":case.get("independent_judgment")}))
             report["tests"].append(case)
-            if case["status"]!="PASS_SCOPED_KNOWN_PROCESSES_ONLY":
+            if case["status"]!="PASS_SCOPED_REPORTED_PROCESS_IDENTITIES_ONLY":
                 raise RuntimeError("EVIDENCE_CASE_NOT_SCOPED_PASS_"+mode)
         report["overall"]="PASS_SCOPED_SYNTHETIC_WINDOWS_ONLY"
     except Exception as exc:
