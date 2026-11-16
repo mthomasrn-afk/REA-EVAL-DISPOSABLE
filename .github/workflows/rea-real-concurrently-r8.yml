@@ -1,0 +1,77 @@
+name: REA actual MCP analysis of MIT Concurrently and R8-scoped owner witness
+on:
+  push:
+    branches:
+      - experiment/rea-real-concurrently-r8-20261115
+    paths:
+      - screening/rea-real-concurrently/**
+      - .github/workflows/rea-real-concurrently-r8.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: rea-real-concurrently-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  real-subject-rea-analysis-and-owner:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 18
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.15.0'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Inspect original MIT upstream source tag (no private source)
+        shell: pwsh
+        run: |
+          git clone --quiet --depth 1 --branch v10.0.7 https://github.com/open-cli-tools/concurrently.git "$env:RUNNER_TEMP/concurrently-upstream"
+          $revision = (git -C "$env:RUNNER_TEMP/concurrently-upstream" rev-parse HEAD).Trim()
+          if ($revision -ne 'f7812ab449f2886be4b7089a10c8e5f1feda2c0b') { throw 'CONCURRENTLY_PIN_MISMATCH' }
+          $meta = Get-Content "$env:RUNNER_TEMP/concurrently-upstream/package.json" -Raw | ConvertFrom-Json
+          if ($meta.version -ne '10.0.7' -or $meta.license -ne 'MIT') { throw 'REAL_TARGET_OR_LICENSE_MISMATCH' }
+      - name: Install exact released REA and real Concurrently without lifecycle scripts
+        shell: pwsh
+        run: |
+          npm install --ignore-scripts --no-audit --no-fund --no-save --package-lock=false rea-agents@6.5.0 concurrently@10.0.7
+          if ($LASTEXITCODE -ne 0) { throw 'EXACT_PACKAGE_INSTALL_FAILED' }
+          node -e "let a=require('./node_modules/rea-agents/package.json'),b=require('./node_modules/concurrently/package.json');if(a.version!=='6.5.0'||b.version!=='10.0.7'||b.license!=='MIT')process.exit(2)"
+          if ($LASTEXITCODE -ne 0) { throw 'EXACT_VERSION_OR_MIT_MISMATCH' }
+      - name: Actual REA MCP tool-call analysis of Concurrently
+        shell: pwsh
+        run: |
+          node screening/rea-real-concurrently/rea_mcp_real.mjs "$env:RUNNER_TEMP/REA_CONCURRENTLY_MCP_RESULT.json"
+          if ($LASTEXITCODE -ne 0) { throw 'REA_REAL_ANALYSIS_FAILED' }
+      - name: Reuse previously source-pinned REA original-owner addon (CI only)
+        uses: actions/download-artifact@v4
+        with:
+          name: rea-c5-test-only-native-addon
+          run-id: 43788378442
+          repository: mthomasrn-afk/REA-EVAL-DISPOSABLE
+          github-token: ${{ github.token }}
+          path: output
+      - name: Independent original-owner Job and portable R8 predicate verification
+        shell: pwsh
+        run: |
+          python -B -m py_compile screening/rea-real-concurrently/real_owner_witness.py
+          python -B screening/rea-real-concurrently/real_owner_witness.py output/rea-windows-x64.node output/manifest.json output/PATCH_RECEIPT.json node_modules/concurrently/dist/bin/index.js "$env:RUNNER_TEMP/REA_CONCURRENTLY_OWNER_RESULT.json"
+          if ($LASTEXITCODE -ne 0) { throw 'REAL_REA_OWNER_R8_PREDICATES_FAILED' }
+      - name: Keep both genuine positive or negative evidence receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rea-concurrently-real-${{ matrix.os }}-NOT-REA-QUALIFIED
+          path: |
+            ${{ runner.temp }}/REA_CONCURRENTLY_MCP_RESULT.json
+            ${{ runner.temp }}/REA_CONCURRENTLY_OWNER_RESULT.json
+          retention-days: 7
+          if-no-files-found: warn
