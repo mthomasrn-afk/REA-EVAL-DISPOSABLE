@@ -195,6 +195,35 @@ def run(addon, manifest, receipt, output):
                         attested.get("duplicate_query_handles_closed"),
                     "CMD_EXACT_OWNER_JOB_MEMBERSHIP_NOT_INDEPENDENTLY_ESTABLISHED")
             result["independent_exact_job_witness"] = attested
+            # New strictly observational discriminator for the historical
+            # console-host hypothesis. Query only the already-held Job PIDs;
+            # record basename only, no full path, account, or ambient scan.
+            k.QueryFullProcessImageNameW.argtypes = (
+                wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR,
+                ctypes.POINTER(wintypes.DWORD))
+            k.QueryFullProcessImageNameW.restype = wintypes.BOOL
+            image_basenames = {}
+            for pid, handle, creation in all_held:
+                chars = wintypes.DWORD(512)
+                buffer = ctypes.create_unicode_buffer(512)
+                ok = k.QueryFullProcessImageNameW(
+                    handle, 0, buffer, ctypes.byref(chars))
+                require(bool(ok) and 0 < chars.value < 512,
+                        "HELD_PROCESS_IMAGE_NAME_UNAVAILABLE")
+                basename = Path(buffer.value).name.casefold()
+                require(bool(basename) and basename == Path(basename).name,
+                        "PROCESS_BASENAME_INVALID")
+                image_basenames[pid] = basename
+            result["held_pid_image_basename"] = [
+                {"pid": pid, "basename": image_basenames[pid],
+                 "declared_by_synthetic_fixture": pid in declared}
+                for pid, _, _ in all_held
+            ]
+            result["unexpected_image_basenames"] = sorted(
+                image_basenames[pid] for pid in extras)
+            result["image_evidence_scope"] = (
+                "INDEPENDENT_KERNEL_HANDLE_BASENAME_ONLY_NOT_PARENT_CAUSALITY"
+            )
             require(all(k.WaitForSingleObject(h, 0) == ALIVE for _, h, _ in all_held),
                     "CMD_LIVE_BEFORE_SECOND_QUERY_FAILED")
             before = qpc(k)
