@@ -131,6 +131,7 @@ def main():
                 raise RuntimeError("ORIGINAL_OWNER_REGRESSION_"+mode)
         for mode in ("close","crash"):
             case=candidate_case(a.addon.resolve(),mode)
+            print("CANDIDATE_CASE_DETAIL",json.dumps({"mode":mode,"status":case["status"],"reason":case.get("reason"),"judgment":case.get("independent_judgment")}))
             report["tests"].append(case)
             if case["status"]!="PASS_SCOPED_KNOWN_PROCESSES_ONLY":
                 raise RuntimeError("EVIDENCE_CASE_NOT_SCOPED_PASS_"+mode)
