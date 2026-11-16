@@ -67,6 +67,42 @@ try{
     JSON.stringify(result.analysis));
   check("genuine_untrusted_metadata",result.analysis.untrusted_marker,
     "Original MCP response _meta");
+  // Verify a concrete functional output, not merely analysis success:
+  // use original REA retained Evidence to page actual module identities.
+  const parentId=projection?.parent_evidence_id??structured?.evidence_id;
+  check("real_analysis_parent_identity",typeof parentId==="string"&&parentId.length>0,
+    "Original source-bound parent Evidence identity");
+  const viewTool=available.tools.find(t=>t.name==="inspect_analysis_view");
+  check("real_view_tool_advertised",!!viewTool,"Original REA inspection tool");
+  const paged=await client.callTool({
+    name:"inspect_analysis_view",
+    arguments:{source:{kind:"retained-evidence",evidence_id:parentId},
+      view:{kind:"page",collection:"modules",offset:0,limit:32}}
+  },{timeout:30000});
+  const page=paged?.structuredContent?.normalized_result;
+  result.module_page={
+    is_error:paged?.isError===true,
+    view_kind:page?.kind??null,
+    module_ids:Array.isArray(page?.items)?page.items.slice(0,32).map(item=>({
+      path:item.path,kind:item.kind,node_id:item.node_id
+    })):[],
+    total_coverage:page?.coverage??null
+  };
+  check("real_rea_retained_module_page",
+    paged?.isError!==true&&page?.kind==="page"&&
+    Array.isArray(page.items)&&page.items.length>0,
+    "REA must report authentic retained real source module identities");
+  const paths=page.items.map(item=>(item.path??"").replaceAll("\\","/"));
+  const present=files.slice(1).map(f=>
+    paths.some(p=>p===f||p.endsWith("/"+f)));
+  result.real_module_path_oracle={
+    independently_existing_source_paths:files.slice(1),
+    source_paths_reported_by_rea:present,
+    total_rea_modules_on_first_page:page.items.length
+  };
+  check("real_source_module_identity_oracle",present.every(Boolean),
+    "Both installed real source files must appear in REA module page");
+  result.real_analysis_summary=projection?.summary??null;
   result.real_analysis=true;
   const missing=await client.callTool({name:"analyze_javascript_application",
     arguments:{input_path:path.join(profile,"nonexistent-negative")}}, {timeout:30000});
